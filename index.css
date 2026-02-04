@@ -1,0 +1,74 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --sat: env(safe-area-inset-top, 0px);
+    --sar: env(safe-area-inset-right, 0px);
+    --sab: env(safe-area-inset-bottom, 0px);
+    --sal: env(safe-area-inset-left, 0px);
+  }
+
+  body {
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
+    font-family: 'Montserrat', sans-serif;
+    user-select: none;
+    background-color: #001D3D;
+    color: #FFFFFF;
+    padding: var(--sat) var(--sar) var(--sab) var(--sal);
+  }
+}
+
+@layer utilities {
+  .safe-top { padding-top: var(--sat); }
+  .safe-bottom { padding-bottom: var(--sab); }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+
+  .scanline {
+    width: 100%;
+    height: 100px;
+    z-index: 5;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0) 0%, rgba(255, 255, 255, 0.05) 50%, rgba(0, 0, 0, 0) 100%);
+    opacity: 0.1;
+    position: absolute;
+    bottom: 100%;
+    animation: scanline 6s linear infinite;
+  }
+
+  @keyframes scanline {
+    0% { bottom: 100%; }
+    100% { bottom: -100px; }
+  }
+
+  .cursor-blink {
+    display: inline-block;
+    width: 8px;
+    height: 15px;
+    background: #FF5F00;
+    animation: blink 0.8s infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+
+  .pulse-ring {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    animation: ring-pulse 2s infinite;
+  }
+
+  @keyframes ring-pulse {
+    0% { width: 20px; height: 20px; opacity: 1; border: 2px solid #FF5F00; }
+    100% { width: 100px; height: 100px; opacity: 0; border: 4px solid #FF5F00; }
+  }
+}
