@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { User, VehicleType } from '../types';
 import { PASSENGER_CATEGORIES, FREIGHT_CATEGORIES, ZIM_CITIES } from '../constants';
 import { Button, Input, Badge } from './Shared';
@@ -8,15 +8,22 @@ import { compressImage } from '../services/utils';
 
 export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
   const [isSignup, setIsSignup] = useState(false);
+  const [isForgot, setIsForgot] = useState(false);
+  const [forgotStep, setForgotStep] = useState(1);
   const [role, setRole] = useState<'rider' | 'driver'>('rider');
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const diagTriggerCount = useRef(0);
+  const diagTimer = useRef<any>(null);
 
   // Security Obfuscated state
   const [raw_p, setRawP] = useState('');
   const [raw_k, setRawK] = useState('');
   const [raw_n, setRawN] = useState('');
+  const [raw_code, setRawCode] = useState('');
   const [city, setCity] = useState('Harare');
   
   // Driver Specific
@@ -31,8 +38,27 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const [vehicleCategory, setVehicleCategory] = useState('');
   const [photos, setPhotos] = useState<(string | null)[]>([null, null, null, null]);
 
+  const handleLogoClick = () => {
+    diagTriggerCount.current++;
+    if (diagTimer.current) clearTimeout(diagTimer.current);
+    
+    diagTimer.current = setTimeout(() => {
+      diagTriggerCount.current = 0;
+    }, 1000);
+
+    if (diagTriggerCount.current >= 5) {
+      setShowDiagnostics(true);
+      diagTriggerCount.current = 0;
+    }
+  };
+
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
+    if (isForgot) {
+      if (forgotStep === 1) handleRequestReset();
+      else handleCompleteReset();
+      return;
+    }
     if (isSignup && role === 'driver' && step < 3) {
       setStep(step + 1);
     } else {
@@ -46,10 +72,6 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
     setRawP(val);
   };
 
-  /**
-   * New Password Rules:
-   * Minimum 8 chars, 1 Lower, 1 Upper, 1 Special, 1 Number
-   */
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setRawK(e.target.value);
   };
@@ -78,9 +100,51 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
     }
   };
 
+  const handleRequestReset = async () => {
+    if (!raw_p) {
+      setError('Mobile signal required for protocol reset');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const formattedPhone = `+263${raw_p}`;
+      await xanoService.requestPasswordReset(formattedPhone);
+      setForgotStep(2);
+      setSuccess('Tactical reset code dispatched via SMS');
+    } catch (err: any) {
+      setError(err.message || 'Node communication failure during reset request');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompleteReset = async () => {
+    if (!raw_code || !raw_k) {
+      setError('Both code and new access key required');
+      return;
+    }
+    if (!validatePassword(raw_k)) {
+      setError('Protocol mismatch: Access key requirements not met');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const formattedPhone = `+263${raw_p}`;
+      const user = await xanoService.completePasswordReset(formattedPhone, raw_code, raw_k);
+      if (user) onLogin(user);
+    } catch (err: any) {
+      setError(err.message || 'Invalid authorization code or node timeout');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSubmit = async () => {
     setLoading(true);
     setError('');
+    setSuccess('');
     
     if (!raw_p || !raw_k) {
         setError('Phone and access key are required');
@@ -89,13 +153,13 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
     }
 
     if (!validatePassword(raw_k)) {
-        setError('Access key: min 8 chars, mixed case, number & special char required');
+        setError('Access key must be min 8 characters with at least 1 uppercase, 1 lowercase, 1 special character and 1 number.');
         setLoading(false);
         return;
     }
 
     if (isSignup && !raw_n.trim()) {
-        setError('Identity signature required');
+        setError('Identity signature required for enrollment');
         setLoading(false);
         return;
     }
@@ -128,9 +192,15 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
       } else {
         user = await xanoService.login(formattedPhone, raw_k);
       }
-      onLogin(user);
+      
+      if (user) {
+        onLogin(user);
+      } else {
+        throw new Error("Invalid response from authorization node.");
+      }
     } catch (err: any) {
-      setError(err.message || 'Access Denied: Verify phone or key.');
+      console.error("[Auth] Connection error details:", err);
+      setError(err.message || 'Access Denied: Please verify your phone and key.');
     } finally {
       setLoading(false);
     }
@@ -138,10 +208,70 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
 
   const currentCategories = vehicleType === VehicleType.PASSENGER ? PASSENGER_CATEGORIES : FREIGHT_CATEGORIES;
 
-  const renderStep1 = () => (
-    <div className="space-y-6 animate-step-in">
+  const renderForgot = () => (
+    <div className="space-y-6 animate-fade-in">
       <div>
-        <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight italic">Reset Access Key</h2>
+        <p className="text-slate-500 text-sm mt-1">
+          {forgotStep === 1 
+            ? "Enter your tactical contact number to receive a reset code." 
+            : "Enter the code received and your new high-security access key."}
+        </p>
+      </div>
+
+      <div className="space-y-4">
+        {forgotStep === 1 ? (
+          <Input 
+            variant="glass" 
+            label="Phone Number" 
+            placeholder="7..." 
+            value={raw_p} 
+            onChange={handlePhoneChange} 
+            icon="phone" 
+            type="tel" 
+            prefixText="+263" 
+            inputMode="numeric" 
+            autoComplete="off" 
+            required 
+          />
+        ) : (
+          <>
+            <Input 
+              variant="glass" 
+              label="Reset Code" 
+              placeholder="000000" 
+              value={raw_code} 
+              onChange={e => setRawCode(e.target.value.replace(/\D/g, ''))} 
+              icon="hashtag" 
+              inputMode="numeric" 
+              autoComplete="one-time-code" 
+              required 
+            />
+            <Input 
+              variant="glass" 
+              label="New Access Key" 
+              type="password" 
+              placeholder="8+ Mixed Chars" 
+              value={raw_k} 
+              onChange={handlePasswordChange} 
+              icon="lock" 
+              autoComplete="new-password" 
+              required 
+            />
+            <div className="flex items-center gap-2 ml-1">
+              <i className={`fa-solid ${validatePassword(raw_k) ? 'fa-circle-check text-emerald-500' : 'fa-circle-info text-slate-300'} text-[9px]`}></i>
+              <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Protocol: Mixed case, number, and special char required</p>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  const renderStep1 = () => (
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-2xl font-bold text-slate-900 tracking-tight italic">
           {isSignup ? "Create your account" : "Welcome back"}
         </h2>
         <p className="text-slate-500 text-sm mt-1">
@@ -169,33 +299,14 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
       )}
 
       <div className="space-y-4">
-        {/* HONEYPOT: Trap browser autofill and specific rejected params */}
-        <div className="absolute opacity-0 pointer-events-none -z-50 h-0 overflow-hidden" aria-hidden="true">
-           <input type="text" name="email" tabIndex={-1} autoComplete="username" />
-           <input type="text" name="reference-email" tabIndex={-1} autoComplete="off" />
-           <input type="password" name="password" tabIndex={-1} autoComplete="current-password" />
-        </div>
-
         {isSignup && (
           <>
-            <Input 
-              name="u_sig_id"
-              id="u_sig_id"
-              variant="glass" 
-              label="Identity Signature" 
-              placeholder="Full Name" 
-              value={raw_n} 
-              onChange={e => setRawN(e.target.value)} 
-              icon="user"
-              autoComplete="off"
-              required
-            />
-            
+            <Input variant="glass" label="Identity Signature" placeholder="Full Name" value={raw_n} onChange={e => setRawN(e.target.value)} icon="user" autoComplete="off" required />
             <div className="space-y-1">
               <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">City Sector</label>
-              <div className="relative group">
+              <div className="relative">
                  <select value={city} onChange={e => setCity(e.target.value)} className="w-full px-4 py-4 bg-slate-50 border-b-2 border-slate-100 text-slate-900 font-bold focus:outline-none appearance-none focus:border-brand-blue transition-all">
-                   {ZIM_CITIES.map((c: string) => <option key={c} value={c} className="text-slate-900 bg-white">{c}</option>)}
+                   {ZIM_CITIES.map((c: string) => <option key={c} value={c}>{c}</option>)}
                  </select>
                  <i className="fa-solid fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-300 pointer-events-none text-[10px]"></i>
               </div>
@@ -203,66 +314,37 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
           </>
         )}
         
-        <Input 
-          name="u_node_tel"
-          id="u_node_tel"
-          variant="glass" 
-          label="Phone Number" 
-          placeholder="7..." 
-          value={raw_p} 
-          onChange={handlePhoneChange} 
-          icon="phone" 
-          type="tel"
-          prefixText="+263"
-          inputMode="numeric"
-          autoComplete="off"
-          required
-        />
+        <Input variant="glass" label="Phone Number" placeholder="7..." value={raw_p} onChange={handlePhoneChange} icon="phone" type="tel" prefixText="+263" inputMode="numeric" autoComplete="off" required />
+        <Input variant="glass" label="Access Key" type="password" placeholder="8+ Mixed Chars" value={raw_k} onChange={handlePasswordChange} icon="lock" autoComplete="one-time-code" required />
         
-        <Input 
-          name="u_node_key"
-          id="u_node_key"
-          variant="glass" 
-          label="Access Key" 
-          type="password" 
-          placeholder="Min 8 chars" 
-          value={raw_k} 
-          onChange={handlePasswordChange} 
-          icon="lock" 
-          autoComplete="one-time-code"
-          required
-        />
-        <div className="flex flex-col gap-1 ml-1">
+        <div className="flex items-center justify-between ml-1">
           <div className="flex items-center gap-2">
             <i className={`fa-solid ${validatePassword(raw_k) ? 'fa-circle-check text-emerald-500' : 'fa-circle-info text-slate-300'} text-[9px]`}></i>
-            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
-              Safety Check: Mixed case, number, and special character
-            </p>
+            <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">Protocol: Security level optimal</p>
           </div>
+          {!isSignup && (
+            <button 
+              type="button" 
+              onClick={() => { setIsForgot(true); setForgotStep(1); setError(''); setSuccess(''); }}
+              className="text-[9px] font-black text-brand-orange uppercase tracking-widest hover:underline"
+            >
+              Forgot Access Key?
+            </button>
+          )}
         </div>
       </div>
     </div>
   );
 
   const renderStep2 = () => (
-    <div className="space-y-6 animate-step-in">
+    <div className="space-y-6">
       <div>
-         <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Elite Profile</h3>
+         <h3 className="text-2xl font-bold text-slate-900 tracking-tight italic">Elite Profile</h3>
          <p className="text-sm text-slate-500 mt-1">Authorization requirements for fleet nodes.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
-        <Input 
-            name="driver-age"
-            variant="glass" 
-            label="Age" 
-            type="number" 
-            placeholder="28" 
-            value={age} 
-            onChange={e => setAge(e.target.value.replace(/\D/g, ''))} 
-            inputMode="numeric"
-            required
-        />
+        <Input variant="glass" label="Age" type="number" placeholder="28" value={age} onChange={e => setAge(e.target.value.replace(/\D/g, ''))} inputMode="numeric" required />
         <div className="space-y-1">
           <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Gender</label>
           <div className="relative">
@@ -297,130 +379,103 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
           </div>
         </div>
       </div>
-
-      <Input name="religion" variant="glass" label="Religion (Optional)" placeholder="e.g. Christian" value={religion} onChange={e => setReligion(e.target.value)} icon="hands-praying" autoComplete="off" />
+      <Input variant="glass" label="Religion (Optional)" placeholder="e.g. Christian" value={religion} onChange={e => setReligion(e.target.value)} icon="hands-praying" autoComplete="off" />
     </div>
   );
 
   const renderStep3 = () => (
-    <div className="space-y-6 animate-step-in">
-      <div>
-         <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Asset Details</h3>
-         <p className="text-sm text-slate-500 mt-1">Mission capability and payload configuration.</p>
-      </div>
-
-      <div className="flex bg-slate-100 p-1 rounded-lg">
-          <button 
-            type="button" 
-            onClick={() => { setVehicleType(VehicleType.PASSENGER); setVehicleCategory(''); }} 
-            className={`flex-1 py-2 text-[10px] font-bold transition-all rounded-md tracking-widest ${vehicleType === VehicleType.PASSENGER ? 'bg-brand-blue text-white' : 'text-slate-500'}`}
-          >
-            RIDE
-          </button>
-          <button 
-            type="button" 
-            onClick={() => { setVehicleType(VehicleType.FREIGHT); setVehicleCategory(''); }} 
-            className={`flex-1 py-2 text-[10px] font-bold transition-all rounded-md tracking-widest ${vehicleType === VehicleType.FREIGHT ? 'bg-brand-blue text-white' : 'text-slate-500'}`}
-          >
-            FREIGHT
-          </button>
-       </div>
-
+    <div className="space-y-6">
        <div className="grid grid-cols-2 gap-2">
          {currentCategories.map((cat: any) => (
-           <div 
-             key={cat.id}
-             onClick={() => setVehicleCategory(cat.name)}
-             className={`p-4 rounded-lg border-2 cursor-pointer transition-all flex items-center justify-between ${vehicleCategory === cat.name ? 'border-brand-orange bg-orange-50/30' : 'border-slate-50 bg-slate-50'}`}
-           >
+           <div key={cat.id} onClick={() => setVehicleCategory(cat.name)} className={`p-4 rounded-lg border-2 cursor-pointer transition-all flex items-center justify-between ${vehicleCategory === cat.name ? 'border-brand-orange bg-orange-50/30' : 'border-slate-50 bg-slate-50'}`}>
               <div className="flex items-center gap-3">
                 <i className={`fa-solid fa-${cat.icon} text-sm ${vehicleCategory === cat.name ? 'text-brand-orange' : 'text-slate-300'}`}></i>
                 <span className={`text-[10px] font-bold uppercase tracking-widest ${vehicleCategory === cat.name ? 'text-slate-900' : 'text-slate-400'}`}>{cat.name}</span>
               </div>
-              {vehicleCategory === cat.name && <i className="fa-solid fa-check text-brand-orange text-[10px]"></i>}
            </div>
          ))}
        </div>
 
-       <div className="space-y-3">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Verification Photos</label>
-          <div className="grid grid-cols-4 gap-2">
-            {[0, 1, 2, 3].map(i => (
-              <label key={i} className="aspect-square rounded-lg bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-brand-blue transition-all overflow-hidden relative">
-                {photos[i] ? (
-                  <img src={photos[i]!} className="w-full h-full object-cover" loading="lazy" alt="Vehicle preview" />
-                ) : (
-                  <i className="fa-solid fa-camera text-slate-300"></i>
-                )}
-                <input type="file" className="hidden" accept="image/*" onChange={(e) => handlePhotoUpload(e, i)} />
-              </label>
-            ))}
-          </div>
+       <div className="grid grid-cols-4 gap-2">
+          {[0, 1, 2, 3].map(i => (
+            <label key={i} className="aspect-square rounded-lg bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-brand-blue transition-all overflow-hidden relative">
+              {photos[i] ? <img src={photos[i]!} className="w-full h-full object-cover" alt="Preview" /> : <i className="fa-solid fa-camera text-slate-300"></i>}
+              <input type="file" className="hidden" accept="image/*" onChange={(e) => handlePhotoUpload(e, i)} />
+            </label>
+          ))}
        </div>
     </div>
   );
 
   return (
-    <div className="min-h-screen bg-white flex flex-col p-6 safe-top safe-bottom overflow-y-auto">
-      <div className="w-full max-w-sm mx-auto flex-1 flex flex-col">
-        <div className="pt-8 mb-12 flex flex-col items-center justify-center text-center">
-           <h1 className="text-4xl font-black text-brand-blue italic tracking-tighter">RideIn</h1>
-           <div className="h-1 w-10 bg-brand-orange mt-1 rounded-full"></div>
-           <p className="text-[8px] font-black uppercase tracking-[0.4em] text-slate-300 mt-4">Safe Node Access</p>
+    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
+      <div className="flex-1 max-w-md mx-auto w-full bg-white p-8 flex flex-col pt-16 relative overflow-hidden">
+        {/* Background tactical elements */}
+        <div className="absolute top-0 right-0 p-4 opacity-[0.03] pointer-events-none">
+          <i className="fa-solid fa-microchip text-[12rem] rotate-12"></i>
         </div>
 
-        <div className="flex-1 flex flex-col justify-center">
-           {isSignup && role === 'driver' && (
-             <div className="flex gap-1 mb-10">
-                {[1, 2, 3].map(s => (
-                  <div key={s} className={`h-1 flex-1 rounded-full transition-all duration-500 ${step >= s ? 'bg-brand-blue' : 'bg-slate-100'}`}></div>
-                ))}
-             </div>
-           )}
-
-           <form onSubmit={handleNext} autoComplete="off">
-              <div className="min-h-[360px]">
-                {step === 1 && renderStep1()}
-                {step === 2 && renderStep2()}
-                {step === 3 && renderStep3()}
-              </div>
-
-              {error && (
-                <div className="mt-6 p-4 bg-red-50 border-l-4 border-brand-orange text-red-700 text-[10px] font-bold uppercase tracking-widest">
-                  {error}
-                </div>
-              )}
-
-              <div className="mt-10 space-y-4">
-                <Button 
-                  type="submit" 
-                  variant="primary" 
-                  className="w-full py-5 rounded-2xl shadow-xl shadow-brand-blue/10 haptic-press" 
-                  disabled={loading}
-                >
-                   {loading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : (
-                     step < 3 && isSignup && role === 'driver' ? 'Advance' : (isSignup ? 'Create Profile' : 'Initiate Session')
-                   )}
-                </Button>
-
-                <button 
-                  type="button" 
-                  onClick={() => { setIsSignup(!isSignup); setStep(1); setError(''); }} 
-                  className="w-full py-4 text-[10px] font-black text-slate-400 hover:text-brand-blue transition-colors uppercase tracking-[0.2em]"
-                >
-                  {isSignup ? "Have an account? Log In" : "New Node? Create Account"}
-                </button>
-              </div>
-           </form>
+        <div onClick={handleLogoClick} className="mb-12 cursor-pointer select-none relative z-10">
+          <h1 className="text-5xl font-black text-brand-blue italic tracking-tighter">RideIn</h1>
+          <div className="h-1.5 w-12 bg-brand-orange mt-2 rounded-full shadow-[0_4px_10px_rgba(255,95,0,0.3)]"></div>
         </div>
 
-        <div className="mt-auto pt-10 text-center">
-           <p className="text-[9px] text-slate-300 uppercase tracking-widest leading-relaxed">
-             Secure Phone Auth Protocol Active <br/>
-             © 2025 RideIn Zimbabwe.
-           </p>
-        </div>
+        {error && <div className="p-4 bg-red-50 border border-red-100 rounded-xl mb-6 text-red-600 text-[10px] font-black uppercase tracking-widest animate-fade-in flex items-center gap-3"><i className="fa-solid fa-triangle-exclamation"></i>{error}</div>}
+        {success && <div className="p-4 bg-emerald-50 border border-emerald-100 rounded-xl mb-6 text-emerald-600 text-[10px] font-black uppercase tracking-widest animate-fade-in flex items-center gap-3"><i className="fa-solid fa-circle-check"></i>{success}</div>}
+
+        <form onSubmit={handleNext} className="flex-1 flex flex-col relative z-10">
+          {isForgot ? renderForgot() : (step === 1 ? renderStep1() : step === 2 ? renderStep2() : renderStep3())}
+
+          <div className="mt-auto pt-12 space-y-4">
+            <Button type="submit" variant="secondary" className="w-full py-6 text-[11px] uppercase tracking-[0.2em] shadow-xl shadow-brand-orange/20" loading={loading}>
+              {isForgot 
+                ? (forgotStep === 1 ? 'Dispatch Code' : 'Update Access Protocol')
+                : (step === 3 || (!isSignup) ? (isSignup ? 'Complete Enrollment' : 'Authorize Node') : 'Next Protocol')}
+            </Button>
+
+            {!isForgot && step === 1 && (
+              <button type="button" onClick={() => { setIsSignup(!isSignup); setError(''); setSuccess(''); }} className="w-full py-4 text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-brand-blue transition-colors">
+                {isSignup ? "Existing Node? Login" : "New Node? Enrollment"}
+              </button>
+            )}
+
+            {isForgot && (
+              <button type="button" onClick={() => { setIsForgot(false); setForgotStep(1); setError(''); setSuccess(''); }} className="w-full py-4 text-[10px] font-black text-slate-300 uppercase tracking-widest hover:text-brand-blue transition-colors">
+                Return to Base Authorization
+              </button>
+            )}
+
+            {isSignup && step > 1 && (
+              <button type="button" onClick={() => setStep(step - 1)} className="w-full py-4 text-[10px] font-black text-slate-300 uppercase tracking-widest">Previous Phase</button>
+            )}
+          </div>
+        </form>
       </div>
+
+      {showDiagnostics && (
+        <div className="fixed inset-0 z-[1000] bg-black/95 text-green-500 font-mono text-[10px] p-4 flex flex-col overflow-hidden animate-fade-in">
+          <div className="flex justify-between items-center mb-4 border-b border-green-900 pb-2">
+            <span className="font-bold uppercase tracking-widest">RIDEIN_DEBUG_CONSOLE v1.0</span>
+            <button onClick={() => setShowDiagnostics(false)} className="px-3 py-1 bg-green-900 text-white rounded">CLOSE</button>
+          </div>
+          <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
+            {((window as any).__RIDEIN_DEBUG_LOGS || []).map((log: any, i: number) => (
+              <div key={i} className={`p-2 border-b border-white/5 ${log.type === 'error' ? 'text-red-400' : 'text-green-500'}`}>
+                <div className="flex justify-between font-bold mb-1">
+                  <span>[{log.timestamp}] {log.method} {log.type}</span>
+                  <span>{log.duration}</span>
+                </div>
+                <div className="opacity-70 break-all">{log.url}</div>
+                {log.status && <div className="font-bold">STATUS: {log.status} {log.ok ? 'OK' : 'FAIL'}</div>}
+                {log.error && <div className="text-red-500 font-bold mt-1">ERR: {log.error}</div>}
+              </div>
+            ))}
+            {((window as any).__RIDEIN_DEBUG_LOGS || []).length === 0 && (
+              <div className="text-white/20 text-center pt-20">NO NETWORK DATA CAPTURED</div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

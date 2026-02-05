@@ -3,6 +3,14 @@
 (window as any).process = (window as any).process || { env: {} };
 (window as any).process.env = (window as any).process.env || {};
 
+// Initialize global debug log
+(window as any).__RIDEIN_DEBUG_LOGS = [];
+const pushLog = (log: any) => {
+  const logs = (window as any).__RIDEIN_DEBUG_LOGS;
+  logs.unshift({ ...log, timestamp: new Date().toISOString() });
+  if (logs.length > 50) logs.pop();
+};
+
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
@@ -37,38 +45,58 @@ function deepScrub(obj: any): any {
  */
 const originalFetch = window.fetch;
 window.fetch = async function(resource: string | Request | URL, config?: RequestInit) {
+  const startTime = Date.now();
+  let urlString = "";
+  let currentConfig: RequestInit = config || {};
+
   try {
-    let url = (resource instanceof Request) ? resource.url : resource.toString();
-    let currentConfig = config || {};
+    if (resource instanceof Request) {
+      urlString = resource.url;
+      // Merge headers from Request object if config doesn't have them
+      const reqHeaders = new Headers(resource.headers);
+      if (currentConfig.headers) {
+        const configHeaders = new Headers(currentConfig.headers);
+        configHeaders.forEach((v, k) => reqHeaders.set(k, v));
+      }
+      currentConfig.headers = reqHeaders;
+      // Note: We don't easily scrub the body of a Request object without consuming the stream,
+      // but in this app, xanoRequest passes string bodies in config.
+    } else {
+      urlString = resource.toString();
+    }
 
     // 1. Scrub Query Parameters from URL
-    if (url.toLowerCase().includes('email')) {
-      const urlObj = new URL(url, window.location.origin);
-      const params = new URLSearchParams(urlObj.search);
-      let changed = false;
-      const forbidden = ['email', 'user_email', 'mail', 'e-mail', 'reference-email', 'reference_email'];
-      
-      forbidden.forEach(key => {
-        if (params.has(key)) {
-          params.delete(key);
-          changed = true;
-        }
-      });
+    if (urlString.toLowerCase().includes('email')) {
+      try {
+        const urlObj = new URL(urlString, window.location.origin);
+        const params = new URLSearchParams(urlObj.search);
+        let changed = false;
+        const forbidden = ['email', 'user_email', 'mail', 'e-mail', 'reference-email', 'reference_email'];
+        
+        forbidden.forEach(key => {
+          if (params.has(key)) {
+            params.delete(key);
+            changed = true;
+          }
+        });
 
-      if (changed) {
-        urlObj.search = params.toString();
-        url = urlObj.toString();
+        if (changed) {
+          urlObj.search = params.toString();
+          urlString = urlObj.toString();
+        }
+      } catch (e) {
+        urlString = urlString.replace(/([?&])email=[^&]*/gi, '');
       }
     }
 
-    // 2. Scrub Body (Only if JSON)
+    // 2. Scrub Body (Only if JSON string)
     if (currentConfig.body && typeof currentConfig.body === 'string') {
       try {
         const parsed = JSON.parse(currentConfig.body);
         const scrubbed = deepScrub(parsed);
         currentConfig.body = JSON.stringify(scrubbed);
       } catch (e) {
-        // Not JSON or malformed, leave as is
+        // Not JSON, leave as is
       }
     }
 
@@ -81,14 +109,29 @@ window.fetch = async function(resource: string | Request | URL, config?: Request
       currentConfig.headers = headers;
     }
 
-    // Rebuild request if necessary
-    if (resource instanceof Request) {
-      return originalFetch(url, currentConfig);
-    }
+    const response = await originalFetch(urlString, currentConfig);
+    const duration = Date.now() - startTime;
+    
+    pushLog({
+      type: 'request',
+      method: currentConfig.method || 'GET',
+      url: urlString,
+      status: response.status,
+      duration: `${duration}ms`,
+      ok: response.ok
+    });
 
-    return originalFetch(url, currentConfig);
-  } catch (err) {
-    console.error('[Interceptor Critical]', err);
+    return response;
+  } catch (err: any) {
+    const duration = Date.now() - startTime;
+    pushLog({
+      type: 'error',
+      method: currentConfig.method || 'GET',
+      url: urlString || 'unknown',
+      error: err.message,
+      duration: `${duration}ms`
+    });
+    console.error('[Interceptor Critical Error]', err);
     return originalFetch(resource, config);
   }
 };

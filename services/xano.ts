@@ -27,6 +27,9 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
   const token = localStorage.getItem('ridein_auth_token');
   const url = `${PROXY_BASE}${endpoint}`;
   
+  console.group(`[Xano Request] ${method} ${endpoint}`);
+  if (body) console.debug("Payload:", body);
+
   try {
     const response = await fetch(url, {
       method,
@@ -38,19 +41,30 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
       body: body ? JSON.stringify(body) : undefined,
     });
 
+    console.debug(`Status: ${response.status} ${response.statusText}`);
+
     if (response.status === 401) {
+      console.warn("[Xano] Auth token invalidated.");
       xanoService.logout();
-      throw new Error("Session Expired");
+      console.groupEnd();
+      throw new Error("Session Expired: Please log in again.");
     }
 
-    const data = await response.json();
+    const data = await response.json().catch(() => ({ message: "Malformed JSON response from server" }));
+    
     if (!response.ok) {
-      throw new Error(data.message || `Protocol Error: ${response.status}`);
+      console.error("[Xano] Protocol error data:", data);
+      console.groupEnd();
+      const msg = data.message || data.error || `Protocol Error: ${response.status}`;
+      throw new Error(msg);
     }
 
+    console.debug(`[Xano Response] Success`);
+    console.groupEnd();
     return cleanResponse(data) as T;
   } catch (err: any) {
     console.error(`[Xano API] ${method} ${endpoint} Failure:`, err.message);
+    console.groupEnd();
     throw err;
   }
 }
@@ -97,6 +111,20 @@ export const xanoService = {
       `/auth/login`, 
       'POST', 
       payload
+    );
+    this.saveSession(res.authToken, res.user);
+    return res.user;
+  },
+
+  async requestPasswordReset(phone: string): Promise<{ message: string }> {
+    return xanoRequest<{ message: string }>(`/auth/request-password-reset`, 'POST', { phone });
+  },
+
+  async completePasswordReset(phone: string, code: string, newPassword: string): Promise<User> {
+    const res = await xanoRequest<{ authToken: string, user: User }>(
+      `/auth/complete-password-reset`, 
+      'POST', 
+      { phone, code, password: newPassword }
     );
     this.saveSession(res.authToken, res.user);
     return res.user;
