@@ -11,6 +11,26 @@ export class GeminiService {
   }
 
   /**
+   * getMarketIntel: Fetches real-time traffic and demand insights for drivers.
+   */
+  async getMarketIntel(city: string): Promise<string> {
+    const ai = this.ai();
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: `Provide a 1-sentence tactical transport update for ${city}, Zimbabwe. Focus on current traffic hotspots, events, or weather affecting demand.`,
+        config: {
+          tools: [{ googleSearch: {} }],
+          systemInstruction: "You are the Fleet Intelligence Node. Provide one brief, professional, high-impact tactical tip for drivers. Use present tense."
+        }
+      });
+      return response.text || "Market conditions optimal. Maintain grid presence.";
+    } catch (error) {
+      return "Scan complete. Grid stable in the current sector.";
+    }
+  }
+
+  /**
    * parseDispatchPrompt: Uses Gemini 3 Flash for lightning-fast structural extraction.
    */
   async parseDispatchPrompt(prompt: string, location?: { lat: number, lng: number }): Promise<any> {

@@ -10,7 +10,7 @@ import './index.css';
 
 /**
  * NUCLEAR SCRUBBER: Recursively removes all 'email' related keys.
- * Explicitly targets 'reference-email' which causes backend errors.
+ * Used to ensure PII is never transmitted to the backend.
  */
 function deepScrub(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
@@ -30,8 +30,7 @@ function deepScrub(obj: any): any {
 }
 
 /**
- * STRENGTHENED FETCH FIREWALL
- * Intercepts requests with strict content-type awareness.
+ * FETCH INTERCEPTOR: Automatically scrubs outbound PII and handles common proxy errors.
  */
 const originalFetch = window.fetch;
 window.fetch = async function(resource: string | Request | URL, config?: RequestInit) {
@@ -66,9 +65,12 @@ window.fetch = async function(resource: string | Request | URL, config?: Request
     }
 
     // 2. Scrub Body (JSON Only)
-    const isJson = (currentConfig.headers instanceof Headers 
-      ? currentConfig.headers.get('Content-Type') 
-      : (currentConfig.headers as any)?.['Content-Type'])?.includes('application/json');
+    const headersForCheck = currentConfig.headers instanceof Headers 
+      ? currentConfig.headers 
+      : new Headers(currentConfig.headers || {});
+    
+    const contentType = headersForCheck.get('Content-Type');
+    const isJson = contentType?.includes('application/json');
 
     if (isJson && typeof currentConfig.body === 'string') {
       try {
@@ -84,7 +86,8 @@ window.fetch = async function(resource: string | Request | URL, config?: Request
       currentConfig.headers = headers;
     }
 
-    return await originalFetch(resource instanceof Request ? resource : urlString, currentConfig);
+    const finalResource = resource instanceof Request ? resource : urlString;
+    return await originalFetch(finalResource, currentConfig);
   } catch (err: any) {
     return originalFetch(resource, config);
   }

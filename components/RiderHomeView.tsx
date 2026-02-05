@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, Suspense, useMemo } from 'react';
 import { User, Trip, TripStatus, VehicleType, Bid, PassengerCategory, FreightCategory } from '../types';
 import { Button, Card, Badge, Input } from './Shared';
@@ -36,6 +37,7 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
   
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [bids, setBids] = useState<Bid[]>([]);
+  const [nearbyDrivers, setNearbyDrivers] = useState<Map<string, any>>(new Map());
   const [proposedFare, setProposedFare] = useState<string>('');
   const [fareExplanation, setFareExplanation] = useState('');
   
@@ -51,6 +53,20 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
     if (!hasSeenOnboarding) setShowOnboarding(true);
   }, [user.id]);
 
+  // Subscription for Nearby Drivers
+  useEffect(() => {
+    if (viewState === 'idle' || viewState === 'review') {
+      const unsub = ablyService.subscribeToNearbyDrivers(user.city || 'Harare', -17.8252, 31.0335, (driver) => {
+         setNearbyDrivers(prev => {
+            const next = new Map(prev);
+            next.set(driver.driverId, driver);
+            return next;
+         });
+      });
+      return () => { unsub(); };
+    }
+  }, [viewState, user.city]);
+
   useEffect(() => {
     if (routeDetails) {
       const fare = calculateSuggestedFare(routeDetails.distance);
@@ -63,7 +79,7 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
         }).then(setFareExplanation);
       }
     }
-  }, [routeDetails, viewState]);
+  }, [routeDetails, viewState, pickup, dropoff]);
 
   useEffect(() => {
     if (viewState === 'bidding' && activeTrip) {
@@ -176,8 +192,14 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
     const markers: any[] = [];
     if (pickupCoords) markers.push({ id: 'p1', ...pickupCoords, type: 'pickup' });
     if (dropoffCoords) markers.push({ id: 'd1', ...dropoffCoords, type: 'dropoff' });
+    
+    // Add drivers
+    nearbyDrivers.forEach((d) => {
+       markers.push({ id: d.driverId, lat: d.lat, lng: d.lng, type: 'driver', rotation: d.rotation });
+    });
+
     return markers;
-  }, [pickupCoords, dropoffCoords]);
+  }, [pickupCoords, dropoffCoords, nearbyDrivers]);
 
   return (
     <div className="h-screen flex flex-col bg-[#001D3D] relative overflow-y-auto font-sans">
@@ -204,13 +226,20 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
          </Suspense>
          
          <div className="absolute top-12 inset-x-4 flex justify-between items-center z-20 pointer-events-none">
-            <button onClick={() => setIsDrawerOpen(true)} className="w-12 h-12 bg-white/95 rounded-full flex items-center justify-center pointer-events-auto shadow-xl"><i className="fa-solid fa-bars-staggered text-lg text-slate-800"></i></button>
-            {viewState === 'idle' && !isMagicActive && (
-              <button onClick={() => setIsMagicActive(true)} className="px-6 py-3 bg-brand-orange text-white rounded-full shadow-2xl font-black text-[10px] uppercase tracking-widest pointer-events-auto animate-fade-in hover:scale-105 transition-transform">
-                <i className="fa-solid fa-wand-magic-sparkles mr-2"></i> Magic Assist
+            <div className="flex items-center gap-3">
+              <button onClick={() => setIsDrawerOpen(true)} className="w-12 h-12 bg-white/95 rounded-full flex items-center justify-center pointer-events-auto shadow-xl"><i className="fa-solid fa-bars-staggered text-lg text-slate-800"></i></button>
+              <div className="bg-brand-blue/90 backdrop-blur-md px-4 py-2.5 rounded-full border border-white/10 flex items-center gap-2 pointer-events-auto shadow-xl animate-fade-in">
+                 <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_5px_#10b981]"></div>
+                 <span className="text-[9px] font-black text-white uppercase tracking-widest">{nearbyDrivers.size} Fleet Nodes Online</span>
+              </div>
+            </div>
+            
+            <div className="flex flex-col items-end gap-3 pointer-events-auto">
+              <button onClick={() => setIsMagicActive(true)} className="w-12 h-12 bg-brand-orange text-white rounded-full shadow-2xl flex items-center justify-center animate-fade-in hover:scale-105 transition-transform">
+                <i className="fa-solid fa-wand-magic-sparkles text-lg"></i>
               </button>
-            )}
-            <button className="w-12 h-12 bg-white/95 rounded-full shadow-xl flex items-center justify-center pointer-events-auto text-red-500"><i className="fa-solid fa-shield-heart text-lg"></i></button>
+              <button className="w-12 h-12 bg-white/95 rounded-full shadow-xl flex items-center justify-center text-red-500"><i className="fa-solid fa-shield-heart text-lg"></i></button>
+            </div>
          </div>
       </div>
 

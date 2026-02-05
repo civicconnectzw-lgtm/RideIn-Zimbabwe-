@@ -74,7 +74,10 @@ const MapView: React.FC<MapViewProps> = ({
     if (map.current || !mapContainer.current) return;
 
     const token = typeof process !== 'undefined' ? process.env.MAPBOX_TOKEN : '';
-    if (!token) return;
+    if (!token) {
+      console.warn("[Mapbox] CRITICAL: MAPBOX_TOKEN is missing from environment. Map will not initialize.");
+      return;
+    }
 
     mapboxgl.accessToken = token;
     

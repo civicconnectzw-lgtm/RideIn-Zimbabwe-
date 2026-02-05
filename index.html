@@ -32,9 +32,9 @@
   <script type="importmap">
 {
   "imports": {
-    "react": "https://esm.sh/react@19.0.0?external=*",
-    "react-dom": "https://esm.sh/react-dom@19.0.0?external=*",
-    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client?external=*",
+    "react": "https://esm.sh/react@19.0.0",
+    "react-dom": "https://esm.sh/react-dom@19.0.0",
+    "react-dom/client": "https://esm.sh/react-dom@19.0.0/client",
     "@google/genai": "https://esm.sh/@google/genai@1.3.0",
     "mapbox-gl": "https://esm.sh/mapbox-gl@3.9.1",
     "ably": "https://esm.sh/ably@1.2.49",
@@ -54,17 +54,21 @@
   <div id="root"></div>
   
   <script>
-    // Advanced Error Boundary for Boot Failures
+    // System Error Interceptor
     window.addEventListener('error', function(e) {
+      console.error('[Boot Fault]', e);
       if (e.message.includes('import') || e.message.includes('module') || e.message.includes('Unexpected token')) {
         const root = document.getElementById('root');
         if (root && !root.innerHTML.trim()) {
            root.innerHTML = `
              <div style="height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#001D3D;color:white;text-align:center;padding:40px;font-family:sans-serif;">
                <div style="font-size:48px;margin-bottom:20px;">⚡</div>
-               <h1 style="font-weight:900;margin-bottom:10px;color:#FF5F00;letter-spacing:-0.05em;">LINK TERMINATED</h1>
-               <p style="font-size:12px;opacity:0.5;max-width:280px;line-height:1.6;text-transform:uppercase;letter-spacing:0.1em;">${e.message || 'Module Protocol Conflict Detected'}</p>
-               <button onclick="window.location.reload()" style="margin-top:30px;padding:18px 36px;background:#FF5F00;border:none;color:white;font-weight:900;border-radius:16px;cursor:pointer;text-transform:uppercase;letter-spacing:0.2em;box-shadow:0 10px 30px rgba(255,95,0,0.3);">Re-Authorize Node</button>
+               <h1 style="font-weight:900;margin-bottom:10px;color:#FF5F00;text-transform:uppercase;letter-spacing:-0.05em;">Link Failure</h1>
+               <p style="font-size:11px;opacity:0.6;max-width:300px;line-height:1.6;text-transform:uppercase;letter-spacing:0.1em;">
+                 Module Resolution Protocol Failed.<br>
+                 Please verify network signal and re-sync.
+               </p>
+               <button onclick="window.location.reload(true)" style="margin-top:30px;padding:18px 36px;background:#FF5F00;border:none;color:white;font-weight:900;border-radius:16px;cursor:pointer;text-transform:uppercase;letter-spacing:0.2em;">Synchronize Node</button>
              </div>
            `;
         }

@@ -40,29 +40,11 @@ class AblyService {
     });
   }
 
-  /**
-   * CRITICAL: Cleans up all active subscriptions before switching roles.
-   * Ensures a Rider switching to Driver stops receiving rider-specific updates.
-   */
   prepareRoleSwitch() {
-    console.debug("[Ably] Preparing for role switch: Cleaning all channels...");
-    this.activeSubscriptions.forEach((channel, name) => {
+    this.activeSubscriptions.forEach((channel) => {
       channel.unsubscribe();
-      console.debug(`[Ably] Unsubscribed from ${name}`);
     });
     this.activeSubscriptions.clear();
-  }
-
-  private getNeighborhoodGrids(lat: number, lng: number): string[] {
-    const latGrid = Math.floor(lat * 10);
-    const lngGrid = Math.floor(lng * 10);
-    const grids = [];
-    for (let i = -1; i <= 1; i++) {
-      for (let j = -1; j <= 1; j++) {
-        grids.push(`${latGrid + i}_${lngGrid + j}`);
-      }
-    }
-    return grids;
   }
 
   async enterDriverPresence(city: string, lat: number, lng: number, data: any): Promise<void> {
@@ -93,6 +75,31 @@ class AblyService {
       const grid = `${Math.floor(lat * 10)}_${Math.floor(lng * 10)}`;
       this.client.channels.get(this.channels.driverPresence(city, grid)).publish('loc', data);
     }
+  }
+
+  subscribeToNearbyDrivers(city: string, lat: number, lng: number, cb: (data: any) => void) {
+    if (!this.client) return () => {};
+    const grid = `${Math.floor(lat * 10)}_${Math.floor(lng * 10)}`;
+    const channelName = this.channels.driverPresence(city, grid);
+    const channel = this.client.channels.get(channelName);
+    
+    // Subscribe to specific 'loc' updates on the presence channel
+    channel.subscribe('loc', (msg) => cb(msg.data));
+    
+    // Also fetch current members
+    channel.presence.get((err, members) => {
+       if (!err && members) {
+          members.forEach(m => {
+            if (m.data && m.data.lat) cb(m.data);
+          });
+       }
+    });
+
+    this.activeSubscriptions.set(channelName, channel);
+    return () => {
+      channel.unsubscribe();
+      this.activeSubscriptions.delete(channelName);
+    };
   }
 
   disconnect() {
