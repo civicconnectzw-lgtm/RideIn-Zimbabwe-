@@ -4,9 +4,34 @@ import { ablyService } from './ably';
 
 const PROXY_BASE = '/.netlify/functions/xano';
 
+/**
+ * Global Scrubbing Utility
+ * Recursively removes any 'email' property from objects before they are sent to Xano.
+ */
+function sanitizePayload(obj: any): any {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(sanitizePayload);
+  
+  const scrubbed = { ...obj };
+  if ('email' in scrubbed) {
+    console.debug("[Xano Proxy] Scrubbing unauthorized 'email' field from request.");
+    delete scrubbed.email;
+  }
+  
+  // Recursively clean nested objects
+  for (const key in scrubbed) {
+    scrubbed[key] = sanitizePayload(scrubbed[key]);
+  }
+  
+  return scrubbed;
+}
+
 async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: any): Promise<T> {
   const token = localStorage.getItem('ridein_auth_token');
   const url = `${PROXY_BASE}${endpoint}`;
+  
+  // Scrub the body before sending
+  const sanitizedBody = body ? sanitizePayload(body) : undefined;
   
   try {
     const response = await fetch(url, {
@@ -15,7 +40,7 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
         'Content-Type': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
-      body: body ? JSON.stringify(body) : undefined,
+      body: sanitizedBody ? JSON.stringify(sanitizedBody) : undefined,
     });
 
     if (response.status === 401) {
@@ -38,7 +63,6 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
 
 export const xanoService = {
   async signup(userData: Partial<User>, pin: string): Promise<User> {
-    // Whitelist payload construction to prevent 'email' leak
     const payload: any = {
       name: userData.name,
       phone: userData.phone,
@@ -79,9 +103,7 @@ export const xanoService = {
     try {
       const user = await xanoRequest<User>(`/auth/me`, 'GET');
       if (user) {
-        // Clean user object from any server-side injected 'email' fields before caching
-        const cleanUser = { ...user };
-        if ((cleanUser as any).email) delete (cleanUser as any).email;
+        const cleanUser = sanitizePayload(user);
         localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
       }
       return user;
@@ -91,8 +113,7 @@ export const xanoService = {
   },
 
   saveSession(token: string, user: User) {
-    const cleanUser = { ...user };
-    if ((cleanUser as any).email) delete (cleanUser as any).email;
+    const cleanUser = sanitizePayload(user);
     localStorage.setItem('ridein_auth_token', token);
     localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
   },
@@ -109,8 +130,7 @@ export const xanoService = {
       user_id: parseInt(userId),
       role 
     });
-    const cleanUser = { ...user };
-    if ((cleanUser as any).email) delete (cleanUser as any).email;
+    const cleanUser = sanitizePayload(user);
     localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
     return cleanUser;
   },

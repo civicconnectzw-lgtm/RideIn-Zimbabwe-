@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { User, VehicleType } from '../types';
 import { PASSENGER_CATEGORIES, FREIGHT_CATEGORIES, ZIM_CITIES } from '../constants';
@@ -12,7 +13,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Form State
+  // Form State - Explicitly phone centric
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -46,13 +47,11 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Alphanumeric only, max 8 chars
     const val = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
     setPassword(val);
   };
 
   const validatePassword = (pass: string) => {
-    // Exactly 8 chars, at least one letter, at least one number
     const regex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{8}$/;
     return regex.test(pass);
   };
@@ -92,12 +91,10 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
         return;
     }
 
-    if (isSignup) {
-        if (!name.trim()) {
-            setError('Full name is required');
-            setLoading(false);
-            return;
-        }
+    if (isSignup && !name.trim()) {
+        setError('Full name is required');
+        setLoading(false);
+        return;
     }
 
     const formattedPhone = `+263${phone}`;
@@ -140,7 +137,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
           {isSignup ? "Create your account" : "Welcome back"}
         </h2>
         <p className="text-slate-500 text-sm mt-1">
-          {isSignup ? "Fill in your details to start using RideIn." : "Log in to your account to continue."}
+          {isSignup ? "Join the Zimbabwe tactical mobility network." : "Log in to your tactical node."}
         </p>
       </div>
 
@@ -173,6 +170,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
               value={name} 
               onChange={e => setName(e.target.value)} 
               icon="user"
+              autoComplete="off"
               required
             />
             
@@ -198,24 +196,26 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
           type="tel"
           prefixText="+263"
           inputMode="numeric"
+          autoComplete="tel"
           required
         />
         
         <Input 
           variant="glass" 
-          label="Password" 
+          label="Pin Code" 
           type="password" 
           placeholder="8 characters (letters & numbers)" 
           value={password} 
           onChange={handlePasswordChange} 
           icon="lock" 
           maxLength={8}
+          autoComplete="current-password"
           required
         />
         <div className="flex items-start gap-2 ml-1">
           <i className={`fa-solid fa-circle-info text-[9px] mt-0.5 ${validatePassword(password) ? 'text-emerald-500' : 'text-slate-300'}`}></i>
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
-            Use exactly 8 characters with at least one letter and one number
+            Security: Pin must be 8 characters with letters & numbers
           </p>
         </div>
       </div>
@@ -225,8 +225,8 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const renderStep2 = () => (
     <div className="space-y-6 animate-step-in">
       <div>
-         <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Driver Profile</h3>
-         <p className="text-sm text-slate-500 mt-1">Please provide some details for your profile.</p>
+         <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Elite Profile</h3>
+         <p className="text-sm text-slate-500 mt-1">Authorization requirements for fleet nodes.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -275,15 +275,15 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
         </div>
       </div>
 
-      <Input variant="glass" label="Religion (Optional)" placeholder="e.g. Christian" value={religion} onChange={e => setReligion(e.target.value)} icon="hands-praying" />
+      <Input variant="glass" label="Religion (Optional)" placeholder="e.g. Christian" value={religion} onChange={e => setReligion(e.target.value)} icon="hands-praying" autoComplete="off" />
     </div>
   );
 
   const renderStep3 = () => (
     <div className="space-y-6 animate-step-in">
       <div>
-         <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Vehicle Details</h3>
-         <p className="text-sm text-slate-500 mt-1">Tell us what vehicle you will be using.</p>
+         <h3 className="text-2xl font-bold text-slate-900 tracking-tight">Asset Details</h3>
+         <p className="text-sm text-slate-500 mt-1">Mission capability and payload configuration.</p>
       </div>
 
       <div className="flex bg-slate-100 p-1 rounded-lg">
@@ -320,7 +320,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
        </div>
 
        <div className="space-y-3">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Vehicle Photos</label>
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Vehicle Verification Photos</label>
           <div className="grid grid-cols-4 gap-2">
             {[0, 1, 2, 3].map(i => (
               <label key={i} className="aspect-square rounded-lg bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-brand-blue transition-all overflow-hidden relative">
@@ -340,10 +340,10 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   return (
     <div className="min-h-screen bg-white flex flex-col p-6 safe-top safe-bottom overflow-y-auto">
       <div className="w-full max-w-sm mx-auto flex-1 flex flex-col">
-        {/* Header Branding */}
         <div className="pt-8 mb-12 flex flex-col items-center justify-center text-center">
            <h1 className="text-4xl font-black text-brand-blue italic tracking-tighter">RideIn</h1>
            <div className="h-1 w-10 bg-brand-orange mt-1 rounded-full"></div>
+           <p className="text-[8px] font-black uppercase tracking-[0.4em] text-slate-300 mt-4">Safe Node Access</p>
         </div>
 
         <div className="flex-1 flex flex-col justify-center">
@@ -355,7 +355,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
              </div>
            )}
 
-           <form onSubmit={handleNext}>
+           <form onSubmit={handleNext} autoComplete="off">
               <div className="min-h-[360px]">
                 {step === 1 && renderStep1()}
                 {step === 2 && renderStep2()}
@@ -372,29 +372,28 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
                 <Button 
                   type="submit" 
                   variant="primary" 
-                  className="w-full py-5 rounded-2xl shadow-xl shadow-brand-blue/10" 
+                  className="w-full py-5 rounded-2xl shadow-xl shadow-brand-blue/10 haptic-press" 
                   disabled={loading}
                 >
                    {loading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : (
-                     step < 3 && isSignup && role === 'driver' ? 'Next' : (isSignup ? 'Create Account' : 'Sign In')
+                     step < 3 && isSignup && role === 'driver' ? 'Advance' : (isSignup ? 'Create Profile' : 'Initiate Session')
                    )}
                 </Button>
 
                 <button 
                   type="button" 
                   onClick={() => { setIsSignup(!isSignup); setStep(1); setError(''); }} 
-                  className="w-full py-4 text-[10px] font-bold text-slate-400 hover:text-brand-blue transition-colors uppercase tracking-[0.2em]"
+                  className="w-full py-4 text-[10px] font-black text-slate-400 hover:text-brand-blue transition-colors uppercase tracking-[0.2em]"
                 >
-                  {isSignup ? "Already have an account? Log In" : "New to RideIn? Create an account"}
+                  {isSignup ? "Have an account? Log In" : "New Node? Create Account"}
                 </button>
               </div>
            </form>
         </div>
 
-        {/* Footer info */}
         <div className="mt-auto pt-10 text-center">
            <p className="text-[9px] text-slate-300 uppercase tracking-widest leading-relaxed">
-             Safe and secure access for your journey. <br/>
+             Secure Phone Auth Protocol Active <br/>
              © 2025 RideIn Zimbabwe.
            </p>
         </div>
