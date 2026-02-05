@@ -16,7 +16,6 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
   const [city, setCity] = useState('Harare');
   
   // Driver Specific
@@ -99,11 +98,6 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
             setLoading(false);
             return;
         }
-        if (!email.trim() || !email.includes('@')) {
-            setError('A valid email address is required');
-            setLoading(false);
-            return;
-        }
     }
 
     const formattedPhone = `+263${phone}`;
@@ -111,7 +105,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
     try {
       let user;
       if (isSignup) {
-        const userData: any = { name, email, phone: formattedPhone, role, city };
+        const userData: any = { name, phone: formattedPhone, role, city };
         if (role === 'driver') {
           userData.age = parseInt(age);
           userData.gender = gender;
@@ -179,17 +173,6 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
               value={name} 
               onChange={e => setName(e.target.value)} 
               icon="user"
-              required
-            />
-
-            <Input 
-              variant="glass" 
-              label="Email Address" 
-              placeholder="e.g. tinashe@email.com" 
-              type="email"
-              value={email} 
-              onChange={e => setEmail(e.target.value)} 
-              icon="envelope"
               required
             />
             
