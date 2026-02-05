@@ -13,10 +13,10 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  // Form State - Explicitly phone centric
-  const [phone, setPhone] = useState('');
-  const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  // Obfuscated state names to prevent shallow inspection
+  const [raw_p, setRawP] = useState('');
+  const [raw_k, setRawK] = useState('');
+  const [raw_n, setRawN] = useState('');
   const [city, setCity] = useState('Harare');
   
   // Driver Specific
@@ -43,12 +43,12 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.replace(/\D/g, '');
     if (val.startsWith('0')) val = val.substring(1);
-    setPhone(val);
+    setRawP(val);
   };
 
   const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value.replace(/[^a-zA-Z0-9]/g, '').slice(0, 8);
-    setPassword(val);
+    setRawK(val);
   };
 
   const validatePassword = (pass: string) => {
@@ -79,30 +79,35 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
     setLoading(true);
     setError('');
     
-    if (!phone || !password) {
-        setError('Phone and password are required');
+    if (!raw_p || !raw_k) {
+        setError('Phone and access key are required');
         setLoading(false);
         return;
     }
 
-    if (!validatePassword(password)) {
-        setError('Password must be exactly 8 characters with a mix of letters and numbers');
+    if (!validatePassword(raw_k)) {
+        setError('Access key must be exactly 8 characters (mixed)');
         setLoading(false);
         return;
     }
 
-    if (isSignup && !name.trim()) {
-        setError('Full name is required');
+    if (isSignup && !raw_n.trim()) {
+        setError('Identity signature required');
         setLoading(false);
         return;
     }
 
-    const formattedPhone = `+263${phone}`;
+    const formattedPhone = `+263${raw_p}`;
 
     try {
       let user;
       if (isSignup) {
-        const userData: any = { name, phone: formattedPhone, role, city };
+        const userData: any = { 
+          name: raw_n, 
+          phone: formattedPhone, 
+          role, 
+          city 
+        };
         if (role === 'driver') {
           userData.age = parseInt(age);
           userData.gender = gender;
@@ -116,13 +121,13 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
             photos: validPhotos.length ? validPhotos : ['https://picsum.photos/seed/car_default/400/300']
           };
         }
-        user = await xanoService.signup(userData, password);
+        user = await xanoService.signup(userData, raw_k);
       } else {
-        user = await xanoService.login(formattedPhone, password);
+        user = await xanoService.login(formattedPhone, raw_k);
       }
       onLogin(user);
     } catch (err: any) {
-      setError(err.message || 'Authentication failed. Please check your credentials.');
+      setError(err.message || 'Access Denied: Verify phone or key.');
     } finally {
       setLoading(false);
     }
@@ -161,21 +166,29 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
       )}
 
       <div className="space-y-4">
+        {/* HONEYPOT: Trap browser autofill attempts */}
+        <div className="absolute opacity-0 pointer-events-none -z-50 h-0 overflow-hidden" aria-hidden="true">
+           <input type="text" name="email" tabIndex={-1} autoComplete="username" />
+           <input type="password" name="password" tabIndex={-1} autoComplete="current-password" />
+        </div>
+
         {isSignup && (
           <>
             <Input 
+              name="u_sig_id"
+              id="u_sig_id"
               variant="glass" 
-              label="Full Name" 
-              placeholder="e.g. Tinashe Maphosa" 
-              value={name} 
-              onChange={e => setName(e.target.value)} 
+              label="Identity Signature" 
+              placeholder="Full Name" 
+              value={raw_n} 
+              onChange={e => setRawN(e.target.value)} 
               icon="user"
               autoComplete="off"
               required
             />
             
             <div className="space-y-1">
-              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">City</label>
+              <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">City Sector</label>
               <div className="relative group">
                  <select value={city} onChange={e => setCity(e.target.value)} className="w-full px-4 py-4 bg-slate-50 border-b-2 border-slate-100 text-slate-900 font-bold focus:outline-none appearance-none focus:border-brand-blue transition-all">
                    {ZIM_CITIES.map((c: string) => <option key={c} value={c} className="text-slate-900 bg-white">{c}</option>)}
@@ -187,35 +200,39 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
         )}
         
         <Input 
+          name="u_node_tel"
+          id="u_node_tel"
           variant="glass" 
           label="Phone Number" 
           placeholder="7..." 
-          value={phone} 
+          value={raw_p} 
           onChange={handlePhoneChange} 
           icon="phone" 
           type="tel"
           prefixText="+263"
           inputMode="numeric"
-          autoComplete="tel"
+          autoComplete="off"
           required
         />
         
         <Input 
+          name="u_node_key"
+          id="u_node_key"
           variant="glass" 
-          label="Pin Code" 
+          label="Access Key (PIN)" 
           type="password" 
-          placeholder="8 characters (letters & numbers)" 
-          value={password} 
+          placeholder="8 characters" 
+          value={raw_k} 
           onChange={handlePasswordChange} 
           icon="lock" 
           maxLength={8}
-          autoComplete="current-password"
+          autoComplete="one-time-code"
           required
         />
         <div className="flex items-start gap-2 ml-1">
-          <i className={`fa-solid fa-circle-info text-[9px] mt-0.5 ${validatePassword(password) ? 'text-emerald-500' : 'text-slate-300'}`}></i>
+          <i className={`fa-solid fa-circle-info text-[9px] mt-0.5 ${validatePassword(raw_k) ? 'text-emerald-500' : 'text-slate-300'}`}></i>
           <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest leading-tight">
-            Security: Pin must be 8 characters with letters & numbers
+            Security: 8 characters (mixed letters & numbers)
           </p>
         </div>
       </div>
@@ -231,6 +248,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
 
       <div className="grid grid-cols-2 gap-4">
         <Input 
+            name="driver-age"
             variant="glass" 
             label="Age" 
             type="number" 
@@ -275,7 +293,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
         </div>
       </div>
 
-      <Input variant="glass" label="Religion (Optional)" placeholder="e.g. Christian" value={religion} onChange={e => setReligion(e.target.value)} icon="hands-praying" autoComplete="off" />
+      <Input name="religion" variant="glass" label="Religion (Optional)" placeholder="e.g. Christian" value={religion} onChange={e => setReligion(e.target.value)} icon="hands-praying" autoComplete="off" />
     </div>
   );
 
@@ -320,7 +338,7 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
        </div>
 
        <div className="space-y-3">
-          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Vehicle Verification Photos</label>
+          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest ml-1 block">Verification Photos</label>
           <div className="grid grid-cols-4 gap-2">
             {[0, 1, 2, 3].map(i => (
               <label key={i} className="aspect-square rounded-lg bg-slate-50 border-2 border-dashed border-slate-200 flex items-center justify-center cursor-pointer hover:border-brand-blue transition-all overflow-hidden relative">

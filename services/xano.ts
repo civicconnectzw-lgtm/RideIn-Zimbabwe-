@@ -5,64 +5,56 @@ import { ablyService } from './ably';
 const PROXY_BASE = '/.netlify/functions/xano';
 
 /**
- * Global Scrubbing Utility
- * Recursively removes any 'email' property from objects before they are sent to Xano.
+ * REINFORCED SCRUBBER: Recursively kills forbidden keys in responses.
  */
-function sanitizePayload(obj: any): any {
+function cleanResponse(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(sanitizePayload);
+  if (Array.isArray(obj)) return obj.map(cleanResponse);
   
-  const scrubbed = { ...obj };
-  if ('email' in scrubbed) {
-    console.debug("[Xano Proxy] Scrubbing unauthorized 'email' field from request.");
-    delete scrubbed.email;
+  const clean: any = {};
+  for (const key in obj) {
+    const k = key.toLowerCase();
+    if (k.includes('email') || k === 'mail' || k === 'user_email') continue;
+    clean[key] = cleanResponse(obj[key]);
   }
-  
-  // Recursively clean nested objects
-  for (const key in scrubbed) {
-    scrubbed[key] = sanitizePayload(scrubbed[key]);
-  }
-  
-  return scrubbed;
+  return clean;
 }
 
 async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: any): Promise<T> {
   const token = localStorage.getItem('ridein_auth_token');
   const url = `${PROXY_BASE}${endpoint}`;
   
-  // Scrub the body before sending
-  const sanitizedBody = body ? sanitizePayload(body) : undefined;
-  
   try {
     const response = await fetch(url, {
       method,
       headers: {
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
         ...(token ? { 'Authorization': `Bearer ${token}` } : {})
       },
-      body: sanitizedBody ? JSON.stringify(sanitizedBody) : undefined,
+      body: body ? JSON.stringify(body) : undefined,
     });
 
     if (response.status === 401) {
       xanoService.logout();
-      throw new Error("Your session has expired. Please log in again.");
+      throw new Error("Session Expired");
     }
 
     const data = await response.json();
-
     if (!response.ok) {
-      throw new Error(data.message || `Backend Error: ${response.status}`);
+      throw new Error(data.message || `Protocol Error: ${response.status}`);
     }
 
-    return data as T;
+    return cleanResponse(data) as T;
   } catch (err: any) {
-    console.error(`[Xano Failure] ${method} ${endpoint}:`, err.message);
+    console.error(`[Xano API] ${method} ${endpoint} Failure:`, err.message);
     throw err;
   }
 }
 
 export const xanoService = {
   async signup(userData: Partial<User>, pin: string): Promise<User> {
+    // STRICT WHITELISTING: Do not pass the userData object. Rebuild it key by key.
     const payload: any = {
       name: userData.name,
       phone: userData.phone,
@@ -77,7 +69,11 @@ export const xanoService = {
       payload.maritalStatus = userData.maritalStatus;
       payload.religion = userData.religion;
       payload.personality = userData.personality;
-      payload.vehicle = userData.vehicle;
+      payload.vehicle = {
+        type: userData.vehicle?.type,
+        category: userData.vehicle?.category,
+        photos: userData.vehicle?.photos || []
+      };
     }
 
     const res = await xanoRequest<{ authToken: string, user: User }>(
@@ -90,10 +86,16 @@ export const xanoService = {
   },
 
   async login(phone: string, pin: string): Promise<User> {
+    // Force specific keys
+    const payload = { 
+      phone, 
+      password: pin 
+    };
+    
     const res = await xanoRequest<{ authToken: string, user: User }>(
       `/auth/login`, 
       'POST', 
-      { phone, password: pin }
+      payload
     );
     this.saveSession(res.authToken, res.user);
     return res.user;
@@ -103,8 +105,7 @@ export const xanoService = {
     try {
       const user = await xanoRequest<User>(`/auth/me`, 'GET');
       if (user) {
-        const cleanUser = sanitizePayload(user);
-        localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
+        localStorage.setItem('ridein_user_cache', JSON.stringify(cleanResponse(user)));
       }
       return user;
     } catch (e) { 
@@ -113,7 +114,7 @@ export const xanoService = {
   },
 
   saveSession(token: string, user: User) {
-    const cleanUser = sanitizePayload(user);
+    const cleanUser = cleanResponse(user);
     localStorage.setItem('ridein_auth_token', token);
     localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
   },
@@ -130,9 +131,9 @@ export const xanoService = {
       user_id: parseInt(userId),
       role 
     });
-    const cleanUser = sanitizePayload(user);
-    localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
-    return cleanUser;
+    const clean = cleanResponse(user);
+    localStorage.setItem('ridein_user_cache', JSON.stringify(clean));
+    return clean;
   },
 
   async updateLocation(lat: number, lng: number): Promise<void> {

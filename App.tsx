@@ -69,16 +69,23 @@ const App: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     const initAuth = async () => {
-      // Scrub 'email' from storage to fix the unsupported parameter reference issue
-      const scrubCache = () => {
-        const cached = localStorage.getItem('ridein_user_cache');
-        if (cached && cached.includes('"email"')) {
-          console.debug("[Auth] Scrubbing legacy user cache with 'email' parameter...");
-          localStorage.removeItem('ridein_user_cache');
+      // 1. Snapshot-based storage cleanup
+      const storageKeys = Object.keys(localStorage);
+      storageKeys.forEach(key => {
+        const val = localStorage.getItem(key);
+        if (val && val.toLowerCase().includes('"email"')) {
+          console.debug(`[Security] Purged localStorage key: ${key}`);
+          localStorage.removeItem(key);
         }
-      };
-      
-      scrubCache();
+      });
+
+      const sessionKeys = Object.keys(sessionStorage);
+      sessionKeys.forEach(key => {
+        const val = sessionStorage.getItem(key);
+        if (val && val.toLowerCase().includes('"email"')) {
+          sessionStorage.removeItem(key);
+        }
+      });
 
       const seen = localStorage.getItem('ridein_intro_seen');
       setHasSeenIntro(seen === 'true');
@@ -88,6 +95,7 @@ const App: React.FC = () => {
         setAuthLoading(false);
         return;
       }
+      
       try {
         const currentUser = await xanoService.getMe();
         if (currentUser) {
@@ -96,12 +104,9 @@ const App: React.FC = () => {
           xanoService.logout();
         }
       } catch (e) {
-        const cachedUser = localStorage.getItem('ridein_user_cache');
-        if (cachedUser) {
-           const parsed = JSON.parse(cachedUser);
-           // Final sanity check before setting state
-           if (parsed.email) delete parsed.email;
-           setUser(parsed);
+        const retryCache = localStorage.getItem('ridein_user_cache');
+        if (retryCache) {
+           setUser(JSON.parse(retryCache));
         }
       } finally {
         setAuthLoading(false);
