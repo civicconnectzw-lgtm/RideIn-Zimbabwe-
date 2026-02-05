@@ -46,7 +46,7 @@ const LoadingScreen = () => (
   <div className="min-h-screen flex items-center justify-center bg-[#001D3D]">
     <div className="flex flex-col items-center gap-4">
       <div className="w-10 h-10 border-[3px] border-white/10 border-t-brand-orange rounded-full animate-spin"></div>
-      <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Synchronizing Network...</p>
+      <p className="text-[10px] font-black text-white/20 uppercase tracking-[0.4em]">Neural Handshake...</p>
     </div>
   </div>
 );
@@ -69,15 +69,19 @@ const App: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     const initAuth = async () => {
+      // Scrub 'email' from storage to fix the unsupported parameter reference issue
+      const scrubCache = () => {
+        const cached = localStorage.getItem('ridein_user_cache');
+        if (cached && cached.includes('"email"')) {
+          console.debug("[Auth] Scrubbing legacy user cache with 'email' parameter...");
+          localStorage.removeItem('ridein_user_cache');
+        }
+      };
+      
+      scrubCache();
+
       const seen = localStorage.getItem('ridein_intro_seen');
       setHasSeenIntro(seen === 'true');
-
-      // Purge stale user cache if it contains deprecated 'email' parameter
-      const cached = localStorage.getItem('ridein_user_cache');
-      if (cached && cached.includes('"email"')) {
-        console.debug("Purging legacy cache with 'email' param...");
-        localStorage.removeItem('ridein_user_cache');
-      }
 
       const token = localStorage.getItem('ridein_auth_token');
       if (!token) {
@@ -93,7 +97,12 @@ const App: React.FC = () => {
         }
       } catch (e) {
         const cachedUser = localStorage.getItem('ridein_user_cache');
-        if (cachedUser) setUser(JSON.parse(cachedUser));
+        if (cachedUser) {
+           const parsed = JSON.parse(cachedUser);
+           // Final sanity check before setting state
+           if (parsed.email) delete parsed.email;
+           setUser(parsed);
+        }
       } finally {
         setAuthLoading(false);
       }
@@ -115,8 +124,8 @@ const App: React.FC = () => {
 
   useEffect(() => {
     if (user && isOnline) {
-      if (user.account_status === 'banned') {
-         alert("Access Denied: Your account has been suspended.");
+      if (user.account_status === 'suspended' || user.account_status === 'banned') {
+         alert("Access Protocol Terminated: Your account is restricted.");
          xanoService.logout();
          return;
       }
@@ -169,12 +178,12 @@ const App: React.FC = () => {
         <div className="fixed top-0 left-0 right-0 z-[110] bg-brand-orange text-white px-4 py-3 flex items-center justify-center gap-3 animate-slide-down shadow-lg">
            <i className={`fa-solid ${!isOnline ? 'fa-wifi-slash' : 'fa-circle-notch fa-spin'} text-[10px]`}></i>
            <p className="text-[10px] font-black uppercase tracking-[0.3em]">
-              {!isOnline ? 'Offline Protocol' : `Node Status: ${ablyStatus}...`}
+              {!isOnline ? 'Offline Protocol' : `Node Status: ${ablyStatus.toUpperCase()}`}
            </p>
         </div>
       )}
       
-      <div key={viewKey} className="animate-fade-in">
+      <div key={viewKey} className="animate-fade-in h-full">
         {renderView()}
       </div>
     </Suspense>

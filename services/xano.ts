@@ -38,7 +38,7 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
 
 export const xanoService = {
   async signup(userData: Partial<User>, pin: string): Promise<User> {
-    // Surgically build payload to ensure no 'email' or other unsupported params are passed
+    // Whitelist payload construction to prevent 'email' leak
     const payload: any = {
       name: userData.name,
       phone: userData.phone,
@@ -79,8 +79,10 @@ export const xanoService = {
     try {
       const user = await xanoRequest<User>(`/auth/me`, 'GET');
       if (user) {
-        // Clean up cached user object to ensure it matches current types
-        localStorage.setItem('ridein_user_cache', JSON.stringify(user));
+        // Clean user object from any server-side injected 'email' fields before caching
+        const cleanUser = { ...user };
+        if ((cleanUser as any).email) delete (cleanUser as any).email;
+        localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
       }
       return user;
     } catch (e) { 
@@ -89,8 +91,10 @@ export const xanoService = {
   },
 
   saveSession(token: string, user: User) {
+    const cleanUser = { ...user };
+    if ((cleanUser as any).email) delete (cleanUser as any).email;
     localStorage.setItem('ridein_auth_token', token);
-    localStorage.setItem('ridein_user_cache', JSON.stringify(user));
+    localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
   },
 
   logout() {
@@ -105,8 +109,10 @@ export const xanoService = {
       user_id: parseInt(userId),
       role 
     });
-    localStorage.setItem('ridein_user_cache', JSON.stringify(user));
-    return user;
+    const cleanUser = { ...user };
+    if ((cleanUser as any).email) delete (cleanUser as any).email;
+    localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
+    return cleanUser;
   },
 
   async updateLocation(lat: number, lng: number): Promise<void> {
@@ -141,13 +147,13 @@ export const xanoService = {
       proposed_price: Number(payload.proposed_price),
       distance_km: Number(payload.distance_km),
       duration_mins: parseInt(payload.duration),
-      is_guest_booking: payload.isGuestBooking,
-      guest_name: payload.guestName,
-      guest_phone: payload.guestPhone,
-      scheduled_time: payload.scheduledTime,
-      item_description: payload.itemDescription,
-      requires_assistance: payload.requiresAssistance,
-      cargo_photos: payload.cargoPhotos
+      is_guest_booking: !!payload.isGuestBooking,
+      guest_name: payload.guestName || '',
+      guest_phone: payload.guestPhone || '',
+      scheduled_time: payload.scheduledTime || null,
+      item_description: payload.itemDescription || '',
+      requires_assistance: !!payload.requiresAssistance,
+      cargo_photos: payload.cargoPhotos || []
     };
     return xanoRequest<Trip>(`/trips`, 'POST', xanoPayload);
   },
