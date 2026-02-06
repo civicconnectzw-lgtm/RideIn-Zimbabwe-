@@ -16,7 +16,7 @@ interface ActiveTripViewProps {
 }
 
 export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onClose }) => {
-  const [eta] = useState('4 mins');
+  const [eta, setEta] = useState(trip.duration ? `${trip.duration} min` : 'Calculating...');
   const [statusMessage, setStatusMessage] = useState('');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -24,8 +24,20 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
   const [routeGeometry, setRouteGeometry] = useState<any>(null);
   const [isSafetyHubOpen, setIsSafetyHubOpen] = useState(false);
 
-  const currentUserId = role === 'rider' ? trip.riderId : trip.driverId || 'unknown'; 
-  const partnerName = trip.partner || 'Partner';
+  const currentUserId = role === 'rider' ? trip.riderId : trip.driverId || 'unknown';
+  
+  const getPartnerName = () => {
+    if (role === 'driver') {
+      return trip.riderName;
+    }
+    // For riders, try to get driver name from various sources
+    if (trip.partner) return trip.partner;
+    const acceptedBid = trip.bids?.find(b => b.id === trip.acceptedBidId);
+    if (acceptedBid?.driverName) return acceptedBid.driverName;
+    return 'Your Driver';
+  };
+  
+  const partnerName = getPartnerName();
 
   useEffect(() => {
     if (trip.pickup && trip.dropoff && !routeGeometry) {
@@ -33,10 +45,30 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
          { lat: trip.pickup.lat, lng: trip.pickup.lng },
          { lat: trip.dropoff.lat, lng: trip.dropoff.lng }
        ).then(route => {
-          if (route) setRouteGeometry(route.geometry);
+          if (route) {
+            setRouteGeometry(route.geometry);
+            setEta(`${route.duration} min`);
+          }
        });
     }
   }, [trip, routeGeometry]);
+
+  // Update ETA when driver location changes
+  useEffect(() => {
+    if (role === 'rider' && driverLocation && trip.pickup) {
+      const target = trip.status === 'ARRIVING' ? trip.pickup : trip.dropoff;
+      if (target) {
+        mapboxService.getRoute(
+          { lat: driverLocation.lat, lng: driverLocation.lng },
+          { lat: target.lat, lng: target.lng }
+        ).then(route => {
+          if (route) {
+            setEta(`${route.duration} min`);
+          }
+        });
+      }
+    }
+  }, [driverLocation, trip.status, trip.pickup, trip.dropoff, role]);
 
   useEffect(() => {
     switch (trip.status) {
@@ -76,6 +108,10 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
     ablyService.subscribeToChat(trip.id, handleMessage);
     return () => ablyService.unsubscribe(`ride:${trip.id}:chat`);
   }, [trip.id, isChatOpen, currentUserId]);
+
+  useEffect(() => {
+    if (isChatOpen) setUnreadCount(0);
+  }, [isChatOpen]);
 
   const mapMarkers = useMemo(() => {
       const markers: any[] = [];
