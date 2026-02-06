@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { User } from '../types';
 import { Button } from './Shared';
@@ -42,7 +41,7 @@ export const PendingApprovalView: React.FC<PendingApprovalViewProps> = ({ user, 
       </p>
       
       <div className="w-full max-w-xs space-y-4">
-        <Button variant="dark" className="w-full py-5 rounded-2xl shadow-xl shadow-black/5" onClick={handleSwitchRole}>
+        <Button variant="secondary" className="w-full py-5 rounded-2xl shadow-xl shadow-black/5" onClick={handleSwitchRole}>
           Switch to Rider Mode
         </Button>
         
