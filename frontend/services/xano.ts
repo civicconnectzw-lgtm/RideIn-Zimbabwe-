@@ -140,17 +140,23 @@ export const xanoService = {
   },
 
   subscribeToActiveTrip(callback: (trip: Trip | null) => void) {
+    let interval: ReturnType<typeof setInterval> | null = null;
     const checkActive = async () => {
       try {
         const trip = await xanoRequest<Trip>(`/trips/active`, 'GET');
         callback(trip || null);
-      } catch (e) { 
-        callback(null); 
+      } catch (e: any) {
+        // If session expired, stop polling to prevent infinite logout loops
+        if (e.message?.includes('Session Expired') || e.message?.includes('401')) {
+          if (interval) clearInterval(interval);
+          return;
+        }
+        callback(null);
       }
     };
     checkActive();
-    const interval = setInterval(checkActive, 12000); 
-    return () => clearInterval(interval);
+    interval = setInterval(checkActive, 12000); 
+    return () => { if (interval) clearInterval(interval); };
   },
 
   async requestTrip(payload: any): Promise<Trip> {
