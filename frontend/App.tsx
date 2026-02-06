@@ -10,6 +10,10 @@ import { xanoService } from './services/xano';
 import { ablyService } from './services/ably';
 import { SplashAnimation } from './components/SplashAnimation';
 import { PublicOnboardingView } from './components/PublicOnboardingView';
+import ToastContainer from './components/ToastContainer';
+import OfflineBanner from './components/OfflineBanner';
+import { useToast } from './hooks/useToast';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
 
 /**
  * Resilient Lazy Loader with fallback error component
@@ -53,17 +57,13 @@ const App: React.FC = () => {
   const [authLoading, setAuthLoading] = useState(true);
   const [showSplash, setShowSplash] = useState(true);
   const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
-  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  
+  const { isOnline } = useNetworkStatus();
+  const toast = useToast();
 
   useEffect(() => {
     // Guaranteed Splash visibility for initial brand engagement
     const splashTimer = setTimeout(() => setShowSplash(false), 2600);
-    
-    // Grid Connectivity Listeners
-    const handleOnline = () => setIsOnline(true);
-    const handleOffline = () => setIsOnline(false);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
 
     const initAuth = async () => {
       try {
@@ -92,6 +92,7 @@ const App: React.FC = () => {
         }
       } catch (e) {
         console.error("[Auth] Link sequence error during boot:", e);
+        toast.error('Failed to restore session. Please log in again.');
       } finally {
         setAuthLoading(false);
       }
@@ -101,10 +102,8 @@ const App: React.FC = () => {
     
     return () => {
       clearTimeout(splashTimer);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [toast]);
 
   const handleLogin = (newUser: User) => {
     setUser(newUser);
@@ -171,11 +170,10 @@ const App: React.FC = () => {
       )}
       
       {/* Global Connectivity Overlay - tactical feedback */}
-      {!isOnline && (
-        <div className="fixed top-0 inset-x-0 z-[1000] bg-red-600 text-white text-[9px] font-black uppercase tracking-[0.3em] py-2 text-center animate-slide-down shadow-xl">
-          GRID CONNECTION OFFLINE - CHECK SIGNAL
-        </div>
-      )}
+      <OfflineBanner isOnline={isOnline} />
+      
+      {/* Global Toast Notifications */}
+      <ToastContainer toasts={toast.toasts} onClose={toast.removeToast} />
     </Suspense>
   );
 };

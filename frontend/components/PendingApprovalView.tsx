@@ -42,7 +42,7 @@ export const PendingApprovalView: React.FC<PendingApprovalViewProps> = ({ user, 
       </p>
       
       <div className="w-full max-w-xs space-y-4">
-        <Button variant="uber" className="w-full py-5 rounded-2xl shadow-xl shadow-black/5" onClick={handleSwitchRole}>
+        <Button variant="secondary" className="w-full py-5 rounded-2xl shadow-xl shadow-black/5" onClick={handleSwitchRole}>
           Switch to Rider Mode
         </Button>
         
