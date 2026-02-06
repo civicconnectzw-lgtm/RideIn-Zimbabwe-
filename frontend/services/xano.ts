@@ -364,5 +364,12 @@ export const xanoService = {
       comment, 
       is_favorite: isFavorite 
     });
+  },
+
+  async submitRating(tripId: string, rating: number): Promise<void> {
+    await xanoRequest(`/trips/${tripId}/rating`, 'POST', {
+      trip_id: parseInt(tripId),
+      rating: Number(rating)
+    });
   }
 };
