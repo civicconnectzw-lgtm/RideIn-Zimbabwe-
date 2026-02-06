@@ -6,6 +6,7 @@ import { ablyService } from '../services/ably';
 import { mapboxService } from '../services/mapbox';
 import { ChatView } from './ChatView';
 import { RatingView } from './RatingView';
+import { useToastContext } from '../hooks/useToastContext';
 
 const MapView = React.lazy(() => import('./MapView'));
 
@@ -24,6 +25,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
   const [routeGeometry, setRouteGeometry] = useState<any>(null);
   const [isSafetyHubOpen, setIsSafetyHubOpen] = useState(false);
 
+  const toast = useToastContext();
   const currentUserId = role === 'rider' ? trip.riderId : trip.driverId || 'unknown'; 
   const partnerName = trip.partner || 'Partner';
 
@@ -34,6 +36,9 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
          { lat: trip.dropoff.lat, lng: trip.dropoff.lng }
        ).then(route => {
           if (route) setRouteGeometry(route.geometry);
+       }).catch(err => {
+          console.error('Failed to load route:', err);
+          // Don't show toast for route errors as they're not critical
        });
     }
   }, [trip, routeGeometry]);
@@ -88,17 +93,23 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
   const handleUpdateStatus = async (newStatus: TripStatus) => {
     try {
       await xanoService.updateTripStatus(trip.id, newStatus);
+      toast.success('Trip status updated');
     } catch (e) {
       console.error("Failed to update status", e);
+      const message = e instanceof Error ? e.message : 'Failed to update trip status';
+      toast.error(message);
     }
   };
 
   const handleRatingSubmit = async (rating: number, tags: string[], comment: string, isFavorite: boolean) => {
     try {
         await xanoService.submitReview(trip.id, rating, tags, comment, isFavorite);
+        toast.success('Thank you for your feedback!');
         onClose();
     } catch (e) {
         console.error("Rating submission failed", e);
+        const message = e instanceof Error ? e.message : 'Failed to submit rating';
+        toast.error(message);
     }
   };
 
