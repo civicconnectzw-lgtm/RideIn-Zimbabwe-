@@ -4,6 +4,7 @@ import { User } from '../types';
 import { Button } from './Shared';
 import { xanoService } from '../services/xano';
 import { ablyService } from '../services/ably';
+import { useToastContext } from '../hooks/useToastContext';
 
 interface PendingApprovalViewProps {
   user: User;
@@ -12,6 +13,8 @@ interface PendingApprovalViewProps {
 }
 
 export const PendingApprovalView: React.FC<PendingApprovalViewProps> = ({ user, onLogout, onUserUpdate }) => {
+  const toast = useToastContext();
+  
   const handleSwitchRole = async () => {
     if (confirm("Switch back to Rider Mode while your application is pending?")) {
       try {
@@ -23,8 +26,11 @@ export const PendingApprovalView: React.FC<PendingApprovalViewProps> = ({ user, 
         
         // Step 3: Refresh UI state
         onUserUpdate(updatedUser);
+        toast.success('Switched to Rider mode successfully!');
       } catch (e) {
-        alert("System error: Unable to switch roles at this time.");
+        console.error('Failed to switch role:', e);
+        const message = e instanceof Error ? e.message : 'Unable to switch roles at this time';
+        toast.error(message);
       }
     }
   };

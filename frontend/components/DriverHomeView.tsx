@@ -6,6 +6,7 @@ import { ablyService } from '../services/ably';
 import { geminiService } from '../services/gemini';
 import { SideDrawer } from './SideDrawer';
 import { ActiveTripView } from './ActiveTripView';
+import { useToastContext } from '../hooks/useToastContext';
 
 export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUserUpdate: (user: User) => void }> = ({ user, onLogout, onUserUpdate }) => {
   const [isOnline, setIsOnline] = useState(false);
@@ -13,6 +14,8 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number}>({ lat: -17.8252, lng: 31.0335 });
+
+  const toast = useToastContext();
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -44,6 +47,18 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
     });
     return unsub;
   }, []);
+
+  const handleAcceptTrip = async (trip: Trip) => {
+    try {
+      await xanoService.submitBid(trip.id, trip.proposed_price, user);
+      toast.success('Bid submitted successfully!');
+      setAvailableTrips(p => p.filter(t => t.id !== trip.id));
+    } catch (err) {
+      console.error('Failed to submit bid:', err);
+      const message = err instanceof Error ? err.message : 'Failed to submit bid';
+      toast.error(message);
+    }
+  };
 
   if (activeTrip) return <ActiveTripView trip={activeTrip} role="driver" onClose={() => setActiveTrip(null)} />;
 
@@ -82,7 +97,7 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
                    </div>
                    <div className="flex gap-3">
                       <Button variant="outline" className="flex-1 py-3 text-[10px]" onClick={() => setAvailableTrips(p => p.filter(t => t.id !== trip.id))}>Skip</Button>
-                      <Button variant="dark" className="flex-2 py-3 text-[10px]" onClick={() => xanoService.submitBid(trip.id, trip.proposed_price, user)}>Accept</Button>
+                      <Button variant="dark" className="flex-2 py-3 text-[10px]" onClick={() => handleAcceptTrip(trip)}>Accept</Button>
                    </div>
                 </Card>
               ))
