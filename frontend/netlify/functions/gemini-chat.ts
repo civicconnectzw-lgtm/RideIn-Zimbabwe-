@@ -37,7 +37,8 @@ export const handler = async (event: any) => {
           systemInstruction: "You are the RideIn Zimbabwe Dispatcher. Be precise with Zimbabwean locations. Always return JSON."
         }
       });
-      return { statusCode: 200, headers, body: response.text || "{}" };
+      const parsedResponse = JSON.parse(response.text || "{}");
+      return { statusCode: 200, headers, body: JSON.stringify(parsedResponse) };
     }
 
     // 2. MARKET INTEL

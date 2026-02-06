@@ -42,7 +42,7 @@ export class GeminiService {
         prompt,
         location
       });
-      return JSON.parse(response);
+      return response; // Already parsed by response.json()
     } catch (error) {
       return null;
     }

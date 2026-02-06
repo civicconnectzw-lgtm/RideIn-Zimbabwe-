@@ -86,9 +86,14 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
                           <input 
                             type="number" 
                             step="0.01" 
-                            min="0" 
+                            min="1" 
                             value={bidPrices[trip.id] || trip.proposed_price} 
-                            onChange={(e) => setBidPrices(prev => ({ ...prev, [trip.id]: parseFloat(e.target.value) || 0 }))}
+                            onChange={(e) => {
+                              const value = parseFloat(e.target.value);
+                              if (!isNaN(value) && value > 0) {
+                                setBidPrices(prev => ({ ...prev, [trip.id]: value }));
+                              }
+                            }}
                             className="w-20 text-2xl font-black text-black tracking-tighter bg-transparent border-b-2 border-zinc-200 focus:border-brand-blue outline-none text-right"
                           />
                         </div>
@@ -110,7 +115,12 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
                           return newPrices;
                         });
                       }}>Skip</Button>
-                      <Button variant="dark" className="flex-2 py-3 text-[10px]" onClick={() => xanoService.submitBid(trip.id, bidPrices[trip.id] || trip.proposed_price, user)}>Accept</Button>
+                      <Button variant="dark" className="flex-2 py-3 text-[10px]" onClick={() => {
+                        const bidPrice = bidPrices[trip.id] || trip.proposed_price;
+                        if (bidPrice > 0) {
+                          xanoService.submitBid(trip.id, bidPrice, user);
+                        }
+                      }}>Accept</Button>
                    </div>
                 </Card>
               ))

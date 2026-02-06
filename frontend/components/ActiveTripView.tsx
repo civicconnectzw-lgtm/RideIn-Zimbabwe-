@@ -24,10 +24,20 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
   const [routeGeometry, setRouteGeometry] = useState<any>(null);
   const [isSafetyHubOpen, setIsSafetyHubOpen] = useState(false);
 
-  const currentUserId = role === 'rider' ? trip.riderId : trip.driverId || 'unknown'; 
-  const partnerName = role === 'driver' 
-    ? trip.riderName 
-    : (trip.partner || trip.bids?.find(b => b.id === trip.acceptedBidId)?.driverName || 'Your Driver');
+  const currentUserId = role === 'rider' ? trip.riderId : trip.driverId || 'unknown';
+  
+  const getPartnerName = () => {
+    if (role === 'driver') {
+      return trip.riderName;
+    }
+    // For riders, try to get driver name from various sources
+    if (trip.partner) return trip.partner;
+    const acceptedBid = trip.bids?.find(b => b.id === trip.acceptedBidId);
+    if (acceptedBid?.driverName) return acceptedBid.driverName;
+    return 'Your Driver';
+  };
+  
+  const partnerName = getPartnerName();
 
   useEffect(() => {
     if (trip.pickup && trip.dropoff && !routeGeometry) {
