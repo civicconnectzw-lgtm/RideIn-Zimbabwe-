@@ -7,10 +7,7 @@ export const useNetworkStatus = () => {
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      // Track if we were offline to show reconnection message
-      if (wasOffline) {
-        setWasOffline(false);
-      }
+      setWasOffline(false);
     };
 
     const handleOffline = () => {
