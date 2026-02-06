@@ -13,12 +13,14 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number}>({ lat: -17.8252, lng: 31.0335 });
+  const locationRef = useRef<{lat: number, lng: number}>({ lat: -17.8252, lng: 31.0335 });
 
   useEffect(() => {
     if (navigator.geolocation) {
       const watchId = navigator.geolocation.watchPosition((pos) => {
           const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setLocation(newCoords);
+          locationRef.current = newCoords;
           if (isOnline) {
             ablyService.publishDriverLocation(user.id, user.city || 'Harare', newCoords.lat, newCoords.lng, 0);
           }
@@ -30,12 +32,12 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
   useEffect(() => {
     let unsub: any = null;
     if (isOnline) {
-      ablyService.subscribeToRequests(user.city || 'Harare', location.lat, location.lng, (trip) => {
+      ablyService.subscribeToRequests(user.city || 'Harare', locationRef.current.lat, locationRef.current.lng, (trip) => {
         setAvailableTrips(prev => [trip, ...prev.filter(t => t.id !== trip.id)]);
       }).then(u => unsub = u);
     }
     return () => { if (unsub) unsub(); };
-  }, [isOnline, user.city, location]);
+  }, [isOnline, user.city]);
 
   useEffect(() => {
     const unsub = xanoService.subscribeToActiveTrip(trip => {

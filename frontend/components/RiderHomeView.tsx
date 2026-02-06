@@ -165,6 +165,66 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
             </Card>
           </div>
         )}
+
+        {viewState === 'bidding' && activeTrip && (
+          <div className="absolute bottom-12 inset-x-8 z-30 animate-slide-up">
+            <Card className="bg-white rounded-3xl p-8 border border-zinc-100 shadow-2xl">
+              <div className="text-center mb-8">
+                <div className="w-16 h-16 mx-auto mb-4 bg-brand-orange/10 rounded-full flex items-center justify-center">
+                  <i className="fa-solid fa-spinner-third animate-spin text-3xl text-brand-orange"></i>
+                </div>
+                <h3 className="text-xl font-black text-black mb-2">Finding Drivers...</h3>
+                <p className="text-xs text-zinc-400 font-bold uppercase tracking-widest">Sending your request</p>
+              </div>
+              
+              <div className="space-y-3 mb-6 p-4 bg-zinc-50 rounded-2xl">
+                <div className="flex items-center gap-3 text-xs font-bold text-zinc-600">
+                  <i className="fa-solid fa-location-dot text-brand-blue"></i>
+                  <span className="truncate">{activeTrip.pickup.address}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-bold text-zinc-600">
+                  <i className="fa-solid fa-flag-checkered text-brand-orange"></i>
+                  <span className="truncate">{activeTrip.dropoff.address}</span>
+                </div>
+                <div className="flex items-center gap-3 text-xs font-bold text-zinc-600">
+                  <i className="fa-solid fa-car text-zinc-400"></i>
+                  <span>{activeTrip.category}</span>
+                  <span className="ml-auto text-lg font-black text-black">${activeTrip.proposed_price.toFixed(2)}</span>
+                </div>
+              </div>
+
+              {activeTrip.bids && activeTrip.bids.length > 0 && (
+                <div className="space-y-3 mb-6">
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Available Drivers</p>
+                  {activeTrip.bids.map(bid => (
+                    <div key={bid.id} className="flex items-center gap-3 p-4 bg-zinc-50 rounded-2xl">
+                      <div className="w-12 h-12 rounded-xl bg-zinc-200 overflow-hidden shrink-0">
+                        <img src={`https://ui-avatars.com/api/?name=${bid.driverName}&background=random`} alt={bid.driverName} className="w-full h-full object-cover" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-black text-sm text-black truncate">{bid.driverName}</div>
+                        <div className="text-[10px] text-zinc-400 font-bold">⭐ {bid.driverRating.toFixed(1)} • {bid.eta}</div>
+                      </div>
+                      <div className="text-right">
+                        <div className="font-black text-lg text-black">${bid.amount.toFixed(2)}</div>
+                        <Button variant="primary" className="mt-1 px-4 py-1 text-[9px]" onClick={async () => {
+                          await xanoService.acceptBid(activeTrip.id, bid.id);
+                          setViewState('active');
+                        }}>Accept</Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <Button variant="outline" className="w-full py-4 rounded-2xl" onClick={async () => {
+                await xanoService.cancelTrip(activeTrip.id);
+                setActiveTrip(null);
+                setViewState('idle');
+              }}>Cancel Request</Button>
+            </Card>
+          </div>
+        )}
       </div>
     </div>
   );
