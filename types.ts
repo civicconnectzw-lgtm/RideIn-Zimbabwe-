@@ -1,4 +1,3 @@
-
 export type UserRole = 'rider' | 'driver';
 
 export enum TripStatus {
@@ -121,15 +120,4 @@ export interface Trip {
   itemDescription?: string;
   requiresAssistance?: boolean;
   cargoPhotos?: string[];
-}
-
-export interface NavigationState {
-  currentView: string;
-  params?: any;
-}
-
-export interface Favorite {
-  id: string;
-  targetUserId: string;
-  roleContext: 'rider_to_driver' | 'driver_to_rider';
 }

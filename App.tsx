@@ -1,4 +1,3 @@
-
 // Safety: Shim process.env for browser environments immediately
 if (typeof window !== 'undefined') {
   (window as any).process = (window as any).process || { env: {} };
@@ -55,7 +54,6 @@ const App: React.FC = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [ablyStatus, setAblyStatus] = useState(ablyService.connectionState);
 
   useEffect(() => {
     // Guaranteed Splash visibility for initial brand engagement
@@ -106,11 +104,6 @@ const App: React.FC = () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
-
-  useEffect(() => {
-    // Correctly handle state types from Ably connection state
-    return ablyService.onConnectionChange((state: any) => setAblyStatus(state));
   }, []);
 
   const handleLogin = (newUser: User) => {

@@ -1,9 +1,6 @@
-
 import mapboxgl from 'mapbox-gl';
 
 const getMapboxToken = () => {
-  // Fix: Directly return process.env.MAPBOX_TOKEN to allow Vite's 'define' replacement to work.
-  // The previous shimmed access to window.process.env was returning undefined.
   return process.env.MAPBOX_TOKEN || '';
 };
 
@@ -19,12 +16,9 @@ export interface GeoResult {
 const geocodeCache = new Map<string, GeoResult[]>();
 
 export const mapboxService = {
-  hasToken: () => !!getMapboxToken(),
-
   async searchAddress(query: string): Promise<GeoResult[]> {
     const token = getMapboxToken();
     if (!query || query.length < 3 || !token) {
-      console.warn("[Mapbox] Search aborted: Query too short or Token missing.");
       return [];
     }
     
@@ -35,12 +29,8 @@ export const mapboxService = {
 
     try {
       const url = `${BASE_GEOCODING_URL}/${encodeURIComponent(query)}.json?access_token=${token}&country=zw&bbox=25.0,-22.5,33.5,-15.5&limit=3`;
-      
       const res = await fetch(url);
-      if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Geocoding failed (${res.status}): ${errorText}`);
-      }
+      if (!res.ok) throw new Error(`Geocoding failed (${res.status})`);
       const data = await res.json();
 
       const results = data.features.map((f: any) => ({
@@ -59,7 +49,7 @@ export const mapboxService = {
 
   async reverseGeocode(lat: number, lng: number): Promise<string> {
     const token = getMapboxToken();
-    if (!token) return "Location Locked (Token Missing)";
+    if (!token) return "Pinned Location";
     try {
       const url = `${BASE_GEOCODING_URL}/${lng},${lat}.json?access_token=${token}&limit=1`;
       const res = await fetch(url);
@@ -76,10 +66,7 @@ export const mapboxService = {
 
   async getRoute(start: { lat: number, lng: number }, end: { lat: number, lng: number }) {
     const token = getMapboxToken();
-    if (!token) {
-      console.warn("[Mapbox] Routing aborted: Token missing.");
-      return null;
-    }
+    if (!token) return null;
 
     try {
       const startCoord = `${start.lng},${start.lat}`;
@@ -87,7 +74,7 @@ export const mapboxService = {
       const url = `${BASE_DIRECTIONS_URL}/${startCoord};${endCoord}?geometries=geojson&access_token=${token}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`Routing failed with status: ${res.status}`);
+      if (!res.ok) throw new Error(`Routing failed`);
       const data = await res.json();
 
       if (!data.routes || data.routes.length === 0) return null;

@@ -16,7 +16,7 @@ interface ActiveTripViewProps {
 }
 
 export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onClose }) => {
-  const [eta, setEta] = useState('4 mins');
+  const [eta] = useState('4 mins');
   const [statusMessage, setStatusMessage] = useState('');
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -30,8 +30,8 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
   useEffect(() => {
     if (trip.pickup && trip.dropoff && !routeGeometry) {
        mapboxService.getRoute(
-         { lat: trip.pickup.lat || -17.82, lng: trip.pickup.lng || 31.05 },
-         { lat: trip.dropoff.lat || -17.80, lng: trip.dropoff.lng || 31.03 }
+         { lat: trip.pickup.lat, lng: trip.pickup.lng },
+         { lat: trip.dropoff.lat, lng: trip.dropoff.lng }
        ).then(route => {
           if (route) setRouteGeometry(route.geometry);
        });
@@ -173,7 +173,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
            <div className="flex-1 flex flex-col items-center justify-center text-center">
               <div className="w-24 h-24 bg-white rounded-[2.5rem] flex items-center justify-center mb-8 shadow-2xl text-red-600 animate-pulse"><i className="fa-solid fa-shield-heart text-4xl"></i></div>
               <h2 className="text-4xl font-black tracking-tighter mb-4 uppercase">Safety Hub</h2>
-              <p className="text-red-100/60 text-xs font-bold uppercase tracking-widest leading-relaxed mb-12">Emergency protocols active. Your live location is being shared with our security dispatch.</p>
+              <p className="text-red-100/60 text-xs font-bold uppercase tracking-widest leading-relaxed mb-12">Emergency protocols active.</p>
               
               <div className="grid grid-cols-1 gap-4 w-full max-w-xs">
                 <Button variant="white" className="!text-red-600 py-6 !rounded-[2rem]">Trigger SOS Alert</Button>

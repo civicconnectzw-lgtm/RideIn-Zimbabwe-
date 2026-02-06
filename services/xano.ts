@@ -1,13 +1,8 @@
-
-import { Trip, TripStatus, User, UserRole, Bid } from '../types';
+import { Trip, TripStatus, User, UserRole } from '../types';
 import { ablyService } from './ably';
 
 const PROXY_BASE = '/.netlify/functions/xano';
 
-/**
- * REINFORCED SCRUBBER: Recursively kills forbidden keys in responses.
- * Specifically targets parameters known to cause Xano 'unsupported' errors.
- */
 function cleanResponse(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
   if (Array.isArray(obj)) return obj.map(cleanResponse);
@@ -27,9 +22,6 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
   const token = localStorage.getItem('ridein_auth_token');
   const url = `${PROXY_BASE}${endpoint}`;
   
-  console.group(`[Xano Request] ${method} ${endpoint}`);
-  if (body) console.debug("Payload:", body);
-
   try {
     const response = await fetch(url, {
       method,
@@ -41,30 +33,20 @@ async function xanoRequest<T>(endpoint: string, method: string = 'GET', body?: a
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    console.debug(`Status: ${response.status} ${response.statusText}`);
-
     if (response.status === 401) {
-      console.warn("[Xano] Auth token invalidated.");
       xanoService.logout();
-      console.groupEnd();
       throw new Error("Session Expired: Please log in again.");
     }
 
     const data = await response.json().catch(() => ({ message: "Malformed JSON response from server" }));
     
     if (!response.ok) {
-      console.error("[Xano] Protocol error data:", data);
-      console.groupEnd();
       const msg = data.message || data.error || `Protocol Error: ${response.status}`;
       throw new Error(msg);
     }
 
-    console.debug(`[Xano Response] Success`);
-    console.groupEnd();
     return cleanResponse(data) as T;
   } catch (err: any) {
-    console.error(`[Xano API] ${method} ${endpoint} Failure:`, err.message);
-    console.groupEnd();
     throw err;
   }
 }
@@ -102,16 +84,8 @@ export const xanoService = {
   },
 
   async login(phone: string, pin: string): Promise<User> {
-    const payload = { 
-      phone, 
-      password: pin 
-    };
-    
-    const res = await xanoRequest<{ authToken: string, user: User }>(
-      `/auth/login`, 
-      'POST', 
-      payload
-    );
+    const payload = { phone, password: pin };
+    const res = await xanoRequest<{ authToken: string, user: User }>(`/auth/login`, 'POST', payload);
     this.saveSession(res.authToken, res.user);
     return res.user;
   },
@@ -163,12 +137,6 @@ export const xanoService = {
     const clean = cleanResponse(user);
     localStorage.setItem('ridein_user_cache', JSON.stringify(clean));
     return clean;
-  },
-
-  async updateLocation(lat: number, lng: number): Promise<void> {
-    await xanoRequest(`/location`, 'POST', {
-      location: { lat, lng }
-    });
   },
 
   subscribeToActiveTrip(callback: (trip: Trip | null) => void) {
@@ -237,9 +205,7 @@ export const xanoService = {
   },
 
   async updateTripStatus(tripId: string, status: TripStatus): Promise<void> {
-    await xanoRequest(`/trips/${tripId}/status`, 'POST', { 
-      status: status 
-    });
+    await xanoRequest(`/trips/${tripId}/status`, 'POST', { status });
   },
 
   async submitReview(tripId: string, rating: number, tags: string[], comment: string, isFavorite: boolean): Promise<void> {

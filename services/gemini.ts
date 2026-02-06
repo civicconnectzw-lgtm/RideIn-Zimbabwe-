@@ -1,30 +1,30 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 /**
- * GEMINI SERVICE - Production Grid Edition
- * Strict logic lock for Zimbabwean transport and logistics operations.
+ * GEMINI SERVICE - Production Release
+ * Simplified assistant for Zimbabwean travel and transport needs.
  */
 export class GeminiService {
   private ai() {
     return new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
-  private readonly PRODUCTION_PROMPT = "You are the Production Grid Controller for a professional transport network in Zimbabwe. Your purpose is strictly limited to logistics, fare estimation, market intelligence, and navigation support. Do not engage in creative writing, humor, personal opinions, or casual conversation. Maintain a professional, high-authority tone. Only provide information relevant to travel and logistics within Zimbabwe.";
+  private readonly SYSTEM_PROMPT = "You are the RideIn Assistant for people in Zimbabwe. You help with trip requests, fare estimates, and local navigation in simple, friendly, and professional English. Avoid technical or robotic language. Only provide information related to transport and travel within Zimbabwe.";
 
   async getMarketIntel(city: string): Promise<string> {
     const ai = this.ai();
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `STATUS_UPDATE_REQUEST: Sector ${city}, Zimbabwe. Analyze traffic patterns and operational demand.`,
+        contents: `What is the current travel or traffic situation in ${city}, Zimbabwe?`,
         config: {
           tools: [{ googleSearch: {} }],
-          systemInstruction: `${this.PRODUCTION_PROMPT} Provide a single, high-impact tactical update. Use present tense. No conversational filler.`
+          systemInstruction: `${this.SYSTEM_PROMPT} Provide a single, helpful travel tip for this area.`
         }
       });
-      return response.text?.trim() || "Grid conditions stable. Sector clear.";
+      return response.text?.trim() || "Travel conditions are currently normal.";
     } catch (error) {
-      return "Grid link established. Awaiting market signal.";
+      return "Safe travels on your next trip.";
     }
   }
 
@@ -33,26 +33,25 @@ export class GeminiService {
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `MISSION_REQUEST_NATURAL_LANGUAGE: "${prompt}"\nUSER_COORDINATES: ${location?.lat || -17.82}, ${location?.lng || 31.03}`,
+        contents: `User says: "${prompt}". User is located at: ${location?.lat || 'unknown'}, ${location?.lng || 'unknown'}`,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
             properties: {
-              pickup: { type: Type.STRING, description: "Name of the pickup point" },
-              dropoff: { type: Type.STRING, description: "Name of the destination" },
-              category: { type: Type.STRING, enum: ["Standard", "Premium", "Luxury"], description: "Vehicle category" },
-              type: { type: Type.STRING, enum: ["ride", "freight"], description: "Type of mission" }
+              pickup: { type: Type.STRING, description: "The starting point name" },
+              dropoff: { type: Type.STRING, description: "The destination name" },
+              category: { type: Type.STRING, enum: ["Standard", "Premium", "Luxury"], description: "The vehicle class" },
+              type: { type: Type.STRING, enum: ["ride", "freight"], description: "Type of service" }
             },
             required: ["pickup", "dropoff", "category", "type"]
           },
-          systemInstruction: `${this.PRODUCTION_PROMPT} Extract mission parameters from natural language inputs. Identify Zimbabwean locations and landmarks with precision. Return ONLY JSON data.`
+          systemInstruction: `${this.SYSTEM_PROMPT} Extract the pickup and destination from the user's request. Return JSON only.`
         }
       });
 
       return JSON.parse(response.text || "{}");
     } catch (error) {
-      console.error("[AI Dispatch] Parse failure", error);
       return null;
     }
   }
@@ -62,15 +61,15 @@ export class GeminiService {
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `EXPLAIN_FARE: $${details.price} | ORIGIN: ${details.pickup} | TARGET: ${details.dropoff}. Location: Zimbabwe.`,
+        contents: `Explain why the fare is $${details.price} for a trip from ${details.pickup} to ${details.dropoff} in Zimbabwe.`,
         config: {
           tools: [{ googleSearch: {} }],
-          systemInstruction: `${this.PRODUCTION_PROMPT} You are the Fare Guard. Justify the calculated price using current Zimbabwean market conditions, fuel costs, and route complexity. Be authoritative and concise.`
+          systemInstruction: `${this.SYSTEM_PROMPT} Briefly justify the price based on distance and local fuel costs in simple terms.`
         }
       });
-      return response.text?.trim() || "Calculated fare aligns with current sector logistics.";
+      return response.text?.trim() || "The fare is based on current distance and local market rates.";
     } catch (error) {
-      return "Fare parameters calibrated to current regional standard.";
+      return "This is the standard rate for this distance.";
     }
   }
 
@@ -79,7 +78,7 @@ export class GeminiService {
     try {
       const response = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: `SCOUT_QUERY: "${query}"`,
+        contents: query,
         config: {
           tools: [{ googleMaps: {} }],
           toolConfig: {
@@ -90,16 +89,16 @@ export class GeminiService {
               }
             }
           },
-          systemInstruction: `${this.PRODUCTION_PROMPT} Utilize Google Maps to identify critical transport infrastructure, landmarks, and facilities nearby. Include precise map URIs in your response.`
+          systemInstruction: `${this.SYSTEM_PROMPT} Help the user find locations or services nearby using Google Maps.`
         }
       });
 
       return {
-        text: response.text || "Scanning sector coordinates...",
+        text: response.text || "Looking for locations...",
         grounding: response.candidates?.[0]?.groundingMetadata?.groundingChunks || []
       };
     } catch (error) {
-      return { text: "Scout intelligence uplink offline.", grounding: [] };
+      return { text: "Location services are currently busy.", grounding: [] };
     }
   }
 }

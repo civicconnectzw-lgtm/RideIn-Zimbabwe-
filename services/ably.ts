@@ -1,6 +1,5 @@
-
 import * as Ably from 'ably';
-import { ChatMessage, TripStatus, Trip, Bid } from '../types';
+import { ChatMessage, Trip } from '../types';
 
 type AblyConnectionState = 'disconnected' | 'connecting' | 'connected' | 'suspended' | 'failed';
 
@@ -8,7 +7,6 @@ class AblyService {
   private client: Ably.Types.RealtimePromise | null = null;
   public connectionState: AblyConnectionState = 'disconnected';
   private activeSubscriptions: Map<string, Ably.Types.RealtimeChannelPromise> = new Map();
-  private connectionListeners: ((state: any) => void)[] = [];
   
   private channels = {
     global: 'global:alerts',
@@ -21,13 +19,6 @@ class AblyService {
     rideChat: (tripId: string) => `ride:${tripId}:chat`
   };
 
-  onConnectionChange(listener: (state: any) => void) {
-    this.connectionListeners.push(listener);
-    return () => {
-      this.connectionListeners = this.connectionListeners.filter(l => l !== listener);
-    };
-  }
-
   connect(userId: string) {
     if (this.client) return;
     this.client = new Ably.Realtime.Promise({
@@ -38,7 +29,6 @@ class AblyService {
 
     this.client.connection.on((stateChange: Ably.Types.ConnectionStateChange) => {
       this.connectionState = stateChange.current as AblyConnectionState;
-      this.connectionListeners.forEach(l => l(stateChange.current));
     });
   }
 
@@ -61,13 +51,6 @@ class AblyService {
     }
   }
 
-  async leaveDriverPresence(city: string, lat: number, lng: number) {
-    if (!this.client) return;
-    const grid = `${Math.floor(lat * 10)}_${Math.floor(lng * 10)}`;
-    const channelName = this.channels.driverPresence(city, grid);
-    await this.client.channels.get(channelName).presence.leave();
-  }
-
   publishDriverLocation(driverId: string, city: string, lat: number, lng: number, rotation: number, activeTripId?: string) {
     if (!this.client) return;
     const data = { driverId, lat, lng, rotation, ts: Date.now() };
@@ -85,10 +68,8 @@ class AblyService {
     const channelName = this.channels.driverPresence(city, grid);
     const channel = this.client.channels.get(channelName);
     
-    // Subscribe to specific 'loc' updates on the presence channel
     channel.subscribe('loc', (msg: Ably.Types.Message) => cb(msg.data));
     
-    // Also fetch current members using the Promise-based API
     channel.presence.get().then((members) => {
       if (members) {
         members.forEach((m: Ably.Types.PresenceMessage) => {
@@ -143,7 +124,7 @@ class AblyService {
     };
   }
 
-  submitBid(tripId: string, bid: Bid) { 
+  submitBid(tripId: string, bid: any) { 
     this.client?.channels.get(this.channels.rideEvents(tripId)).publish('bid', bid); 
   }
   
