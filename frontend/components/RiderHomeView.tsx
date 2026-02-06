@@ -64,7 +64,7 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
         if (route) {
           setRouteGeometry(route.geometry);
           setRouteDistance(parseFloat(route.distance));
-          setRouteDuration(Math.ceil(parseFloat(route.duration) / 60)); // Convert seconds to minutes
+          setRouteDuration(route.duration); // Already in minutes
           setProposedFare(Math.max(2, parseFloat(route.distance) * 0.8));
           setViewState('review');
         }

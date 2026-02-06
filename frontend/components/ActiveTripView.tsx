@@ -37,8 +37,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
        ).then(route => {
           if (route) {
             setRouteGeometry(route.geometry);
-            const durationMins = Math.ceil(parseFloat(route.duration) / 60);
-            setEta(`${durationMins} min`);
+            setEta(`${route.duration} min`);
           }
        });
     }
@@ -54,8 +53,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
           { lat: target.lat, lng: target.lng }
         ).then(route => {
           if (route) {
-            const durationMins = Math.ceil(parseFloat(route.duration) / 60);
-            setEta(`${durationMins} min`);
+            setEta(`${route.duration} min`);
           }
         });
       }
