@@ -125,7 +125,8 @@ class RequestCache {
 // Sanitize Response (replaces cleanResponse)
 // ============================================================================
 
-const FORBIDDEN_KEYS = new Set(['email', 'mail', 'user_email', 'reference-email', 'reference_email', 'e-mail']);
+// Note: reference-email is checked with includes() to catch variations like 'some-reference-email-field'
+const FORBIDDEN_KEYS = new Set(['email', 'mail', 'user_email', 'reference_email', 'e-mail']);
 
 function sanitizeResponse<T>(obj: T): T {
   if (obj === null || typeof obj !== 'object') return obj;
@@ -335,7 +336,7 @@ class XanoApiClient {
         const trip = await this.request<Trip>(`/trips/active`, 'GET', undefined, controller.signal);
         callback(trip || null);
       } catch (e) {
-        // Don't callback on abort errors
+        // Do not callback on abort errors
         if (e instanceof ApiError && e.code === 'ABORTED') return;
         callback(null); 
       }
