@@ -6,6 +6,7 @@ import { ablyService } from '../services/ably';
 import { geminiService } from '../services/gemini';
 import { SideDrawer } from './SideDrawer';
 import { ActiveTripView } from './ActiveTripView';
+import { useToastContext } from '../hooks/useToastContext';
 
 export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUserUpdate: (user: User) => void }> = ({ user, onLogout, onUserUpdate }) => {
   const [isOnline, setIsOnline] = useState(false);
@@ -13,22 +14,31 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [location, setLocation] = useState<{lat: number, lng: number}>({ lat: -17.8252, lng: 31.0335 });
-  const locationRef = useRef<{lat: number, lng: number}>({ lat: -17.8252, lng: 31.0335 });
-  const [bidPrices, setBidPrices] = useState<Record<string, number>>({});
+  const [bidPrices, setBidPrices] = useState<{ [key: string]: number }>({}); // Added bidPrices state
+  const locationRef = useRef<{ lat: number; lng: number }>({ lat: -17.8252, lng: 31.0335 }); // Added locationRef
+  const toast = useToastContext(); // Added toast context
 
   useEffect(() => {
     if (navigator.geolocation) {
-      const watchId = navigator.geolocation.watchPosition((pos) => {
+      const watchId = navigator.geolocation.watchPosition(
+        (pos) => {
           const newCoords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
           setLocation(newCoords);
           locationRef.current = newCoords;
           if (isOnline) {
             ablyService.publishDriverLocation(user.id, user.city || 'Harare', newCoords.lat, newCoords.lng, 0);
           }
-        });
+        },
+        (err) => {
+          console.error('Geolocation error:', err);
+          toast.error('Unable to fetch your location. Please check your device settings.');
+        }
+      );
       return () => navigator.geolocation.clearWatch(watchId);
+    } else {
+      toast.error('Geolocation is not supported by your browser.');
     }
-  }, [isOnline, user.id, user.city]);
+  }, [isOnline, user.id, user.city, toast]);
 
   useEffect(() => {
     let unsub: any = null;
@@ -49,6 +59,18 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
     });
     return unsub;
   }, []);
+
+  const handleAcceptTrip = async (trip: Trip) => {
+    try {
+      await xanoService.submitBid(trip.id, trip.proposed_price, user);
+      toast.success('Bid submitted successfully!');
+      setAvailableTrips(p => p.filter(t => t.id !== trip.id));
+    } catch (err) {
+      console.error('Failed to submit bid:', err);
+      const message = err instanceof Error ? err.message : 'Failed to submit bid';
+      toast.error(message);
+    }
+  };
 
   if (activeTrip) return <ActiveTripView trip={activeTrip} role="driver" onClose={() => setActiveTrip(null)} />;
 
@@ -107,18 +129,14 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
                       </div>
                    </div>
                    <div className="flex gap-3">
-                      <Button variant="outline" className="flex-1 py-3 text-[10px]" onClick={() => {
-                        setAvailableTrips(p => p.filter(t => t.id !== trip.id));
-                        setBidPrices(prev => {
-                          const newPrices = { ...prev };
-                          delete newPrices[trip.id];
-                          return newPrices;
-                        });
-                      }}>Skip</Button>
-                      <Button variant="dark" className="flex-2 py-3 text-[10px]" onClick={() => {
-                        const bidPrice = bidPrices[trip.id] || trip.proposed_price;
-                        if (bidPrice > 0) {
-                          xanoService.submitBid(trip.id, bidPrice, user);
+                      <Button variant="outline" className="flex-1 py-3 text-[10px]" onClick={() => setAvailableTrips(p => p.filter(t => t.id !== trip.id))}>Skip</Button>
+                      <Button variant="dark" className="flex-2 py-3 text-[10px]" onClick={async () => {
+                        try {
+                          await xanoService.submitBid(trip.id, trip.proposed_price, user);
+                          toast.success('Bid accepted successfully!');
+                        } catch (err) {
+                          console.error('Failed to accept bid:', err);
+                          toast.error('Failed to accept bid. Please try again.');
                         }
                       }}>Accept</Button>
                    </div>
