@@ -1,15 +1,20 @@
 
 // Safety: Shim process.env for browser environments immediately
-(window as any).process = (window as any).process || { env: {} };
-(window as any).process.env = (window as any).process.env || {};
+if (typeof window !== 'undefined') {
+  (window as any).process = (window as any).process || { env: {} };
+  (window as any).process.env = (window as any).process.env || {};
+}
 
-import React, { useState, useEffect, Suspense, useCallback } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { User } from './types';
 import { xanoService } from './services/xano';
 import { ablyService } from './services/ably';
 import { SplashAnimation } from './components/SplashAnimation';
 import { PublicOnboardingView } from './components/PublicOnboardingView';
 
+/**
+ * Resilient Lazy Loader with fallback error component
+ */
 const lazyLoad = <T extends React.ComponentType<any>>(
   importFunc: () => Promise<any>, 
   componentName: string
@@ -19,20 +24,26 @@ const lazyLoad = <T extends React.ComponentType<any>>(
       .then(module => ({ default: module[componentName] as T }))
       .catch(error => {
         console.error(`[Boot] Resource Offline: ${componentName}`, error);
-        return { default: (() => (
-          <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-[#001D3D] text-white">
+        const ErrorComponent: React.FC = () => (
+          <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-[#001D3D] text-white font-mono">
             <div className="w-16 h-16 rounded-3xl bg-red-500/20 flex items-center justify-center mb-6 text-red-500">
               <i className="fa-solid fa-link-slash text-2xl"></i>
             </div>
-            <h3 className="font-black text-xl mb-2 italic">PROTOCOL FAILURE</h3>
-            <p className="text-xs text-white/30 mb-8 uppercase tracking-widest max-w-xs">The component node ${componentName} failed to synchronize with the core.</p>
-            <button onClick={() => window.location.reload()} className="px-10 py-4 bg-brand-orange text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px]">Restart Uplink</button>
+            <h3 className="font-black text-xl mb-2 italic uppercase text-brand-orange">PROTOCOL_FAILURE</h3>
+            <p className="text-[10px] text-white/30 mb-8 uppercase tracking-widest max-w-xs leading-relaxed">
+              The component node {componentName} failed to synchronize with the core grid.
+            </p>
+            <button onClick={() => window.location.reload()} className="px-10 py-4 bg-brand-orange text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] haptic-press shadow-xl shadow-brand-orange/20">
+              Restart Uplink
+            </button>
           </div>
-        )) as unknown as T };
+        );
+        return { default: ErrorComponent as unknown as T };
       })
   );
 };
 
+// Strategic View Imports
 const LoginView = lazyLoad<React.FC<{ onLogin: (user: User) => void }>>(() => import('./components/LoginView'), 'LoginView');
 const RiderHomeView = lazyLoad<React.FC<any>>(() => import('./components/RiderHomeView'), 'RiderHomeView');
 const DriverHomeView = lazyLoad<React.FC<any>>(() => import('./components/DriverHomeView'), 'DriverHomeView');
@@ -45,11 +56,12 @@ const App: React.FC = () => {
   const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [ablyStatus, setAblyStatus] = useState(ablyService.connectionState);
-  const [viewKey, setViewKey] = useState(0); 
 
   useEffect(() => {
-    const splashTimer = setTimeout(() => setShowSplash(false), 2500);
+    // Guaranteed Splash visibility for initial brand engagement
+    const splashTimer = setTimeout(() => setShowSplash(false), 2400);
     
+    // Grid Connectivity Listeners
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
     window.addEventListener('online', handleOnline);
@@ -66,17 +78,22 @@ const App: React.FC = () => {
           return;
         }
         
-        // Attempt secure handshake
+        // Attempt Core Uplink
         const currentUser = await xanoService.getMe().catch(() => null);
         if (currentUser) {
           setUser(currentUser);
+          ablyService.connect(currentUser.id);
         } else {
-          // Fallback to cache if network is unstable but token exists
+          // Fallback to cached identity if link is weak
           const cached = localStorage.getItem('ridein_user_cache');
-          if (cached) setUser(JSON.parse(cached));
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            setUser(parsed);
+            ablyService.connect(parsed.id);
+          }
         }
       } catch (e) {
-        console.warn("[App] Auth Handshake Interrupted");
+        console.error("[Auth] Link sequence error during boot:", e);
       } finally {
         setAuthLoading(false);
       }
@@ -84,68 +101,87 @@ const App: React.FC = () => {
 
     initAuth();
     
-    const unsubAbly = ablyService.onConnectionChange((state) => {
-      setAblyStatus(state as any);
-    });
-
     return () => {
       clearTimeout(splashTimer);
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
-      unsubAbly();
     };
   }, []);
 
   useEffect(() => {
-    if (user && isOnline) {
-      if (user.account_status === 'suspended' || user.account_status === 'banned') {
-         xanoService.logout();
-         return;
-      }
-      ablyService.connect(user.id);
-    } else {
-      ablyService.disconnect();
-    }
-    setViewKey(v => v + 1); 
-  }, [user, isOnline]);
+    return ablyService.onConnectionChange(setAblyStatus);
+  }, []);
 
-  const handleLogin = (newUser: User) => setUser(newUser);
-  const handleLogout = useCallback(() => xanoService.logout(), []);
-  const handleUserUpdate = useCallback((updatedUser: User) => setUser(updatedUser), []);
-
-  if (showSplash || authLoading || hasSeenIntro === null) return <SplashAnimation />;
-
-  const renderView = () => {
-    if (!user) {
-      return hasSeenIntro ? <LoginView onLogin={handleLogin} /> : <PublicOnboardingView onComplete={() => {
-        localStorage.setItem('ridein_intro_seen', 'true');
-        setHasSeenIntro(true);
-      }} />;
+  const handleLogin = (newUser: User) => {
+    setUser(newUser);
+    if (newUser.id) {
+      ablyService.connect(newUser.id);
     }
-    
-    if (user.role === 'rider') return <RiderHomeView user={user} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />;
-    
-    if (user.role === 'driver') {
-      const isApproved = user.driver_approved === true || user.driver_status === 'approved';
-      return isApproved 
-        ? <DriverHomeView user={user} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />
-        : <PendingApprovalView user={user} onLogout={handleLogout} onUserUpdate={handleUserUpdate} />;
-    }
-    
-    return <LoginView onLogin={handleLogin} />;
   };
 
+  const handleLogout = () => {
+    xanoService.logout();
+    setUser(null);
+  };
+
+  const handleCompleteIntro = () => {
+    localStorage.setItem('ridein_intro_seen', 'true');
+    setHasSeenIntro(true);
+  };
+
+  // Condition 1: Splash or Initial Load
+  if (showSplash || authLoading || hasSeenIntro === null) {
+    return <SplashAnimation />;
+  }
+
+  // Condition 2: First-time tactical onboarding
+  if (!hasSeenIntro) {
+    return <PublicOnboardingView onComplete={handleCompleteIntro} />;
+  }
+
+  // Condition 3: Unauthorized state
+  if (!user) {
+    return (
+      <Suspense fallback={<SplashAnimation />}>
+        <LoginView onLogin={handleLogin} />
+      </Suspense>
+    );
+  }
+
+  // Role-based routing logic
+  const isDriver = user.role === 'driver';
+  const isApproved = user.driver_approved === true || user.driver_status === 'approved';
+
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#001D3D]" />}>
-      {(!isOnline || ablyStatus !== 'connected') && user && (
-        <div className="fixed top-0 left-0 right-0 z-[110] bg-brand-orange text-white px-4 py-2 flex items-center justify-center gap-3 shadow-lg">
-           <i className="fa-solid fa-circle-notch fa-spin text-[10px]"></i>
-           <p className="text-[9px] font-black uppercase tracking-[0.3em]">Syncing Neural Node...</p>
+    <Suspense fallback={<SplashAnimation />}>
+      {isDriver ? (
+        isApproved ? (
+          <DriverHomeView 
+            user={user} 
+            onLogout={handleLogout} 
+            onUserUpdate={setUser} 
+          />
+        ) : (
+          <PendingApprovalView 
+            user={user} 
+            onLogout={handleLogout} 
+            onUserUpdate={setUser} 
+          />
+        )
+      ) : (
+        <RiderHomeView 
+          user={user} 
+          onLogout={handleLogout} 
+          onUserUpdate={setUser} 
+        />
+      )}
+      
+      {/* Global Connectivity Overlay - tactical feedback */}
+      {!isOnline && (
+        <div className="fixed top-0 inset-x-0 z-[1000] bg-red-600 text-white text-[9px] font-black uppercase tracking-[0.3em] py-2 text-center animate-slide-down shadow-xl">
+          GRID CONNECTION OFFLINE - CHECK SIGNAL
         </div>
       )}
-      <div key={viewKey} className="animate-fade-in h-full">
-        {renderView()}
-      </div>
     </Suspense>
   );
 };

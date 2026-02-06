@@ -13,41 +13,52 @@ interface OnboardingStep {
 
 export const PublicOnboardingView: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [booting, setBooting] = useState(true);
-
-  useEffect(() => {
-    const timer = setTimeout(() => setBooting(false), 1500);
-    return () => clearTimeout(timer);
-  }, []);
+  const [displayText, setDisplayText] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
 
   const steps: OnboardingStep[] = [
     {
-      title: "Tactical Mobility",
+      title: "TACTICAL_MOBILITY",
       description: "Zimbabwe's premier AI-driven transport marketplace. Deploying optimized routing for riders and heavy freight across the nation.",
       icon: "rocket",
       color: "text-brand-orange",
-      highlight: "NETWORK ACTIVE",
-      tagline: "MISSION READY"
+      highlight: "NETWORK_ACTIVE",
+      tagline: "MISSION_READY"
     },
     {
-      title: "Gemini Intelligence",
+      title: "GEMINI_COGNITION",
       description: "Harness 'Magic Assist' for natural language dispatch. Simply describe your mission parameters and let our AI handle the logistics.",
-      icon: "brain-circuit",
+      icon: "brain",
       color: "text-blue-400",
-      highlight: "AI DISPATCH",
-      tagline: "NEURAL CORE 2.5"
+      highlight: "NEURAL_LINK_v2.5",
+      tagline: "CORE_INTELLIGENCE"
     },
     {
-      title: "Elite Marketplace",
+      title: "ELITE_MARKETPLACE",
       description: "Strategic bidding protocol for total transparency. Drivers compete for your mission, ensuring market-fair pricing every time.",
       icon: "microchip",
       color: "text-emerald-500",
-      highlight: "SECURE GRID",
-      tagline: "MARKET OPS"
+      highlight: "SECURE_GRID",
+      tagline: "PROTOCOL_ALPHA"
     }
   ];
 
   const step = steps[currentStep];
+
+  useEffect(() => {
+    setIsTyping(true);
+    setDisplayText('');
+    let i = 0;
+    const interval = setInterval(() => {
+      setDisplayText(step.title.slice(0, i + 1));
+      i++;
+      if (i >= step.title.length) {
+        clearInterval(interval);
+        setIsTyping(false);
+      }
+    }, 40);
+    return () => clearInterval(interval);
+  }, [currentStep, step.title]);
 
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
@@ -57,101 +68,78 @@ export const PublicOnboardingView: React.FC<{ onComplete: () => void }> = ({ onC
     }
   };
 
-  if (booting) {
-    return (
-      <div className="fixed inset-0 z-[200] bg-brand-blue flex flex-col items-center justify-center p-8 overflow-hidden font-mono">
-        <div className="flex flex-col items-center gap-4 text-brand-orange">
-          <i className="fa-solid fa-satellite-dish text-4xl animate-pulse"></i>
-          <p className="text-[10px] font-black tracking-[0.5em] animate-pulse">INITIALIZING NEURAL LINK...</p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="fixed inset-0 z-[100] bg-brand-blue flex flex-col items-center justify-center p-8 animate-fade-in overflow-hidden">
-      {/* Dynamic Background Elements */}
-      <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] pointer-events-none"></div>
-      <div className="absolute top-[-20%] left-[-10%] w-[70%] h-[70%] bg-brand-orange/5 blur-[120px] rounded-full animate-pulse-slow"></div>
-      <div className="absolute bottom-[-20%] right-[-10%] w-[70%] h-[70%] bg-blue-500/5 blur-[120px] rounded-full animate-pulse-slow"></div>
-      
-      {/* Floating HUD Elements */}
-      <div className="absolute top-12 left-12 opacity-20 text-[8px] font-mono text-white tracking-[0.3em] rotate-90 origin-left">
-        PROTOCOL_V1.0_SECURE
+    <div className="fixed inset-0 z-[100] bg-[#000814] flex flex-col items-center justify-center p-8 animate-fade-in overflow-hidden font-mono text-white">
+      <div className="absolute inset-0 opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] pointer-events-none"></div>
+      <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-white/10 rounded-full animate-spin-slow"></div>
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] border border-white/5 rounded-full animate-reverse-spin"></div>
       </div>
 
       <div className="w-full max-w-sm relative z-10 flex flex-col items-center text-center">
-        {/* Step Identity */}
-        <div className="mb-12 animate-slide-down">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <span className="h-[1px] w-4 bg-brand-orange/40"></span>
-            <span className="text-[10px] font-black text-brand-orange uppercase tracking-[0.4em]">{step.tagline}</span>
-            <span className="h-[1px] w-4 bg-brand-orange/40"></span>
+        <div className="mb-14 animate-slide-down">
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <span className="text-[9px] font-black text-brand-orange tracking-[0.5em]">PHASE_0{currentStep + 1}</span>
+            <div className="h-[1px] w-8 bg-white/10"></div>
+            <span className="text-[9px] font-black text-white/20 tracking-[0.5em]">{step.tagline}</span>
           </div>
-          <h1 className="text-2xl font-black text-white italic tracking-tighter">RideIn <span className="text-white/40">Elite</span></h1>
+          <h1 className="text-2xl font-black text-white italic tracking-tighter">RideIn <span className="text-white/20 uppercase font-mono not-italic text-sm ml-1">v2.5</span></h1>
         </div>
 
-        {/* Tactical Icon Sphere */}
-        <div className="relative w-56 h-56 mb-12 flex items-center justify-center">
-          <div className="absolute inset-0 border-2 border-white/5 rounded-full animate-reverse-spin"></div>
-          <div className="absolute inset-4 border border-brand-orange/20 rounded-full animate-spin-slow"></div>
-          <div className="absolute inset-8 border border-white/5 rounded-full"></div>
-          <div className="w-36 h-36 rounded-[3rem] bg-white/5 backdrop-blur-3xl border border-white/10 flex items-center justify-center shadow-2xl relative rotate-3">
-             <i className={`fa-solid fa-${step.icon} text-6xl ${step.color} drop-shadow-[0_0_20px_rgba(255,255,255,0.2)]`}></i>
-             <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-brand-orange text-white text-[8px] font-black px-4 py-1.5 rounded-full tracking-[0.2em] shadow-xl whitespace-nowrap">
-               {step.highlight}
+        <div className="relative w-72 h-72 mb-14 flex items-center justify-center">
+          <div className="absolute inset-0 border border-brand-orange/10 rounded-full animate-pulse"></div>
+          <div className="absolute inset-8 border border-white/5 rounded-full animate-reverse-spin"></div>
+          <div className="absolute inset-16 border-2 border-brand-orange/5 rounded-full animate-spin-slow"></div>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-[1px] bg-brand-orange/10 animate-spin-slow origin-center"></div>
+
+          <div className="w-44 h-44 rounded-[3.5rem] bg-[#001D3D]/60 backdrop-blur-3xl border border-white/10 flex items-center justify-center shadow-2xl relative group overflow-hidden">
+             <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent"></div>
+             <i className={`fa-solid fa-${step.icon} text-7xl ${step.color} transition-all duration-500 drop-shadow-[0_0_20px_rgba(255,255,255,0.1)] z-10`}></i>
+             
+             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1 z-20">
+                {steps.map((_, i) => (
+                  <div key={i} className={`w-1.5 h-1.5 rounded-full ${i <= currentStep ? 'bg-brand-orange shadow-[0_0_5px_#FF5F00]' : 'bg-white/10'}`}></div>
+                ))}
              </div>
           </div>
+
+          <div className="absolute -bottom-4 bg-brand-orange text-white text-[9px] font-black px-6 py-2 rounded-xl tracking-[0.4em] shadow-2xl whitespace-nowrap z-30 animate-scale-in">
+             {step.highlight}
+          </div>
         </div>
 
-        {/* Content Section */}
-        <div className="min-h-[160px] flex flex-col justify-center mb-8">
-          <h2 className="text-4xl font-black text-white tracking-tighter mb-4 uppercase animate-step-in italic">
-            {step.title}
+        <div className="min-h-[160px] flex flex-col justify-start mb-8">
+          <h2 className="text-3xl font-black text-white tracking-tighter mb-5 uppercase italic h-10 flex items-center justify-center">
+            {displayText}
+            {isTyping && <span className="w-2 h-6 bg-brand-orange ml-1 animate-pulse"></span>}
           </h2>
-          <p className="text-blue-100/50 text-[13px] font-medium leading-relaxed max-w-[300px] mx-auto animate-fade-in" key={currentStep}>
+          <p className="text-blue-100/40 text-[14px] font-bold leading-relaxed max-w-[280px] mx-auto animate-fade-in" key={currentStep}>
             {step.description}
           </p>
         </div>
 
-        {/* Step Navigation HUD */}
-        <div className="flex items-center gap-4 mb-12">
-           <span className="text-[10px] font-black text-white/20">0{currentStep + 1}</span>
-           <div className="flex gap-2">
-              {steps.map((_, i) => (
-                <div 
-                  key={i} 
-                  className={`h-1.5 rounded-full transition-all duration-700 ${i === currentStep ? 'bg-brand-orange w-8 shadow-[0_0_10px_rgba(255,95,0,0.5)]' : 'bg-white/10 w-2'}`}
-                ></div>
-              ))}
-           </div>
-           <span className="text-[10px] font-black text-white/20">03</span>
-        </div>
-
-        {/* Primary Interaction */}
         <div className="w-full space-y-4">
           <Button 
             variant="secondary" 
-            className="w-full py-6 text-[11px] font-black uppercase tracking-[0.4em] rounded-[2rem] shadow-2xl shadow-brand-orange/30 transform active:scale-95 transition-all"
+            className="w-full py-7 text-[12px] font-black uppercase tracking-[0.5em] rounded-[2rem] shadow-[0_20px_40px_rgba(255,95,0,0.15)] haptic-press"
             onClick={handleNext}
           >
-            {currentStep === steps.length - 1 ? 'Engage Marketplace' : 'Initialize Next'}
+            {currentStep === steps.length - 1 ? 'ACTIVATE_NODE' : 'NEXT_PHASE'}
           </Button>
 
           <button 
             onClick={onComplete}
-            className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] hover:text-white transition-colors py-2"
+            className="text-[10px] font-black text-white/10 uppercase tracking-[0.4em] hover:text-brand-orange/60 transition-colors py-3"
           >
-            Skip Briefing Protocol
+            SKIP_ENCRYPTION
           </button>
         </div>
       </div>
 
-      {/* Grid Coordinates Footer */}
-      <div className="absolute bottom-12 inset-x-8 flex justify-between items-center opacity-20 text-[9px] font-mono text-white tracking-[0.2em]">
-        <span>LAT: -17.8252</span>
-        <div className="h-[1px] flex-1 mx-4 bg-white/20"></div>
-        <span>LNG: 31.0335</span>
+      <div className="absolute bottom-12 inset-x-12 flex justify-between items-center opacity-10 text-[9px] font-black text-white tracking-[0.6em]">
+        <span>REGION::AFRICA_ZW</span>
+        <div className="h-[1px] flex-1 mx-8 bg-white/20"></div>
+        <span>UID_GRID_CALIBRATED</span>
       </div>
     </div>
   );

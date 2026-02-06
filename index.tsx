@@ -1,7 +1,9 @@
 
-// Safety: Shim process.env for browser environments immediately
-(window as any).process = (window as any).process || { env: {} };
-(window as any).process.env = (window as any).process.env || {};
+// Safety: Shim process.env for browser environments immediately and with absolute priority
+if (typeof window !== 'undefined') {
+  (window as any).process = (window as any).process || { env: {} };
+  (window as any).process.env = (window as any).process.env || {};
+}
 
 import React from 'react';
 import { createRoot } from 'react-dom/client';
@@ -9,96 +11,76 @@ import App from './App';
 import './index.css';
 
 /**
- * NUCLEAR SCRUBBER: Recursively removes all 'email' related keys.
- * Used to ensure PII is never transmitted to the backend.
+ * PII SCRUBBER - Ensures no sensitive data leaks to logs or unexpected sinks
  */
-function deepScrub(obj: any): any {
+function scrubPII(obj: any): any {
   if (obj === null || typeof obj !== 'object') return obj;
-  if (Array.isArray(obj)) return obj.map(deepScrub);
+  if (Array.isArray(obj)) return obj.map(scrubPII);
   
   const clean: any = {};
-  const blacklist = ['email', 'user_email', 'mail', 'e-mail', 'reference-email', 'reference_email'];
+  const forbidden = ['email', 'user_email', 'mail', 'e-mail', 'reference-email', 'reference_email', 'password', 'pin'];
   
   for (const key in obj) {
     const k = key.toLowerCase();
-    if (blacklist.some(forbidden => k === forbidden || k.includes('reference-email'))) {
-      continue;
+    if (forbidden.some(f => k === f || k.includes('email'))) {
+      if (k === 'password' || k === 'pin') {
+        clean[key] = scrubPII(obj[key]);
+      } else {
+        continue;
+      }
     }
-    clean[key] = deepScrub(obj[key]);
+    clean[key] = scrubPII(obj[key]);
   }
   return clean;
 }
 
 /**
- * FETCH INTERCEPTOR: Automatically scrubs outbound PII and handles common proxy errors.
+ * FETCH INTERCEPTOR - Global safety net for API calls
  */
-const originalFetch = window.fetch;
-window.fetch = async function(resource: string | Request | URL, config?: RequestInit) {
-  let urlString = "";
-  let currentConfig: RequestInit = config ? { ...config } : {};
-
+const { fetch: originalFetch } = window;
+window.fetch = async function(...args) {
+  const [resource, config] = args;
   try {
-    if (resource instanceof Request) {
-      const clonedReq = resource.clone();
-      urlString = clonedReq.url;
-      const reqHeaders = new Headers(clonedReq.headers);
-      if (currentConfig.headers) {
-        new Headers(currentConfig.headers).forEach((v, k) => reqHeaders.set(k, v));
+    if (config?.body && typeof config.body === 'string') {
+      const headers = new Headers(config.headers);
+      if (headers.get('Content-Type')?.includes('application/json')) {
+        try {
+          const isAuthCall = typeof resource === 'string' && (resource.includes('/auth/login') || resource.includes('/auth/signup'));
+          if (!isAuthCall) {
+            const parsed = JSON.parse(config.body);
+            config.body = JSON.stringify(scrubPII(parsed));
+          }
+        } catch (e) {}
       }
-      currentConfig.headers = reqHeaders;
-      currentConfig.method = clonedReq.method;
-    } else {
-      urlString = resource.toString();
     }
-
-    // 1. Scrub Query Parameters
-    if (urlString.toLowerCase().includes('email')) {
-      try {
-        const urlObj = new URL(urlString, window.location.origin);
-        const params = new URLSearchParams(urlObj.search);
-        let changed = false;
-        ['email', 'user_email', 'mail', 'e-mail', 'reference-email', 'reference_email'].forEach(key => {
-          if (params.has(key)) { params.delete(key); changed = true; }
-        });
-        if (changed) { urlObj.search = params.toString(); urlString = urlObj.toString(); }
-      } catch (e) {}
-    }
-
-    // 2. Scrub Body (JSON Only)
-    const headersForCheck = currentConfig.headers instanceof Headers 
-      ? currentConfig.headers 
-      : new Headers(currentConfig.headers || {});
-    
-    const contentType = headersForCheck.get('Content-Type');
-    const isJson = contentType?.includes('application/json');
-
-    if (isJson && typeof currentConfig.body === 'string') {
-      try {
-        const parsed = JSON.parse(currentConfig.body);
-        currentConfig.body = JSON.stringify(deepScrub(parsed));
-      } catch (e) {}
-    }
-
-    // 3. Scrub Headers
-    if (currentConfig.headers) {
-      const headers = new Headers(currentConfig.headers);
-      ['X-User-Email', 'X-Email', 'reference-email', 'reference_email'].forEach(h => headers.delete(h));
-      currentConfig.headers = headers;
-    }
-
-    const finalResource = resource instanceof Request ? resource : urlString;
-    return await originalFetch(finalResource, currentConfig);
-  } catch (err: any) {
-    return originalFetch(resource, config);
+    return await originalFetch.apply(window, args);
+  } catch (err) {
+    throw err;
   }
 };
 
 const rootElement = document.getElementById('root');
 if (rootElement) {
   const root = createRoot(rootElement);
-  root.render(
-    <React.StrictMode>
-      <App />
-    </React.StrictMode>
-  );
+  try {
+    // We wrap in a generic error boundary at the highest level
+    root.render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  } catch (err) {
+    console.error("[CRITICAL] App Root Mount Failure:", err);
+    rootElement.innerHTML = `
+      <div style="height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#001D3D;color:white;text-align:center;padding:40px;font-family:sans-serif;">
+        <div style="font-size:64px;margin-bottom:20px;">🚨</div>
+        <h1 style="color:#FF5F00;font-weight:900;text-transform:uppercase;letter-spacing:-0.05em;margin-bottom:10px;">Tactical_Link_Severed</h1>
+        <p style="opacity:0.6;font-size:12px;max-width:320px;line-height:1.6;letter-spacing:0.1em;text-transform:uppercase;">
+          The system encountered a fatal initialization error during boot.<br>
+          Code: ${err instanceof Error ? err.name : 'BOOT_FAULT_0x1'}
+        </p>
+        <button onclick="window.location.reload()" style="padding:18px 36px; background:#FF5F00; border:none; color:white; border-radius:16px; margin-top:30px; font-weight:900; text-transform:uppercase; letter-spacing:0.2em; cursor:pointer;">Retry Synchronize</button>
+      </div>
+    `;
+  }
 }

@@ -21,7 +21,6 @@ interface MapViewProps {
   isPickingLocation?: boolean;
   onLocationPick?: (lat: number, lng: number) => void;
   onMarkerClick?: (marker: MapMarker) => void;
-  limitToClosest?: number;
 }
 
 const MapView: React.FC<MapViewProps> = ({ 
@@ -73,9 +72,9 @@ const MapView: React.FC<MapViewProps> = ({
   useEffect(() => {
     if (map.current || !mapContainer.current) return;
 
-    const token = typeof process !== 'undefined' ? process.env.MAPBOX_TOKEN : '';
+    const token = process.env.MAPBOX_TOKEN;
     if (!token) {
-      console.warn("[Mapbox] CRITICAL: MAPBOX_TOKEN is missing from environment. Map will not initialize.");
+      console.error("[MapView] ERROR: Mapbox access token is missing.");
       return;
     }
 
@@ -84,7 +83,7 @@ const MapView: React.FC<MapViewProps> = ({
     try {
       map.current = new mapboxgl.Map({
         container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/light-v11',
+        style: 'mapbox://styles/mapbox/dark-v11', // High-contrast tactical mode
         center: center,
         zoom: zoom,
         pitch: 45,
@@ -104,7 +103,7 @@ const MapView: React.FC<MapViewProps> = ({
             type: 'line',
             source: 'route',
             layout: { 'line-join': 'round', 'line-cap': 'round' },
-            paint: { 'line-color': '#002B5B', 'line-width': 5, 'line-opacity': 0.8 }
+            paint: { 'line-color': '#FF5F00', 'line-width': 4, 'line-opacity': 0.8 }
           });
         }
       });
@@ -115,7 +114,7 @@ const MapView: React.FC<MapViewProps> = ({
         });
       }
     } catch (err) {
-      console.error('[MapView] Init failed:', err);
+      console.error('[MapView] Initialization failed:', err);
     }
 
     return () => {
@@ -125,6 +124,13 @@ const MapView: React.FC<MapViewProps> = ({
     };
   }, []);
 
+  // Sync center when props update (Fixes 0,0 lock)
+  useEffect(() => {
+    if (isLoaded && map.current && center) {
+      map.current.easeTo({ center: center, duration: 1500, zoom: Math.max(map.current.getZoom(), 14) });
+    }
+  }, [center, isLoaded]);
+
   useEffect(() => {
     if (!isLoaded || !map.current || !routeGeometry) return;
     const source = map.current.getSource('route') as mapboxgl.GeoJSONSource;
@@ -132,27 +138,29 @@ const MapView: React.FC<MapViewProps> = ({
       source.setData({ type: 'Feature', properties: {}, geometry: routeGeometry });
       const bounds = new mapboxgl.LngLatBounds();
       routeGeometry.coordinates.forEach((coord: [number, number]) => bounds.extend(coord));
-      map.current.fitBounds(bounds, { padding: 100, duration: 1000 });
+      map.current.fitBounds(bounds, { padding: 80, duration: 1200 });
     }
   }, [routeGeometry, isLoaded]);
 
   useEffect(() => {
     if (!isLoaded || !map.current) return;
     const currentMarkerIds = new Set(markers.map(m => m.id));
+    
     staticMarkersRef.current.forEach((marker, id) => {
       if (!currentMarkerIds.has(id)) {
         marker.remove();
         staticMarkersRef.current.delete(id);
       }
     });
+
     markers.forEach(m => {
       const existing = staticMarkersRef.current.get(m.id);
       if (existing) {
         existing.setLngLat([m.lng, m.lat]);
         if (m.type === 'driver') {
           const el = existing.getElement();
-          const svgContainer = el.querySelector('div');
-          if (svgContainer) svgContainer.style.transform = `rotate(${m.rotation || 0}deg)`;
+          const div = el.querySelector('div');
+          if (div) div.style.transform = `rotate(${m.rotation || 0}deg)`;
         }
       } else {
         const el = createCustomMarker(m.type || 'default', m.rotation);
@@ -165,7 +173,7 @@ const MapView: React.FC<MapViewProps> = ({
     });
   }, [markers, isLoaded]);
 
-  return <div ref={mapContainer} className="w-full h-full" />;
+  return <div ref={mapContainer} className="w-full h-full grayscale-[0.5] contrast-[1.1]" />;
 };
 
 export default React.memo(MapView);

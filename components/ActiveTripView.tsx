@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState, useMemo } from 'react';
 import { Trip, TripStatus, UserRole } from '../types';
 import { Button, Card, Badge } from './Shared';
@@ -115,7 +116,8 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
       <div className="fixed inset-0 z-40 flex flex-col bg-white">
         <div className="flex-1 relative">
           <React.Suspense fallback={<div className="w-full h-full bg-gray-100" />}>
-              <MapView center={trip.pickup ? [trip.pickup.lng, trip.pickup.lat] : [-17.8252, 31.0335]} markers={mapMarkers} routeGeometry={routeGeometry} zoom={14} />
+              {/* Fix: Fallback center coordinates were swapped, causing the map to stay at [0,0] or center incorrectly. Mapbox expects [lng, lat]. */}
+              <MapView center={trip.pickup ? [trip.pickup.lng, trip.pickup.lat] : [31.0335, -17.8252]} markers={mapMarkers} routeGeometry={routeGeometry} zoom={14} />
           </React.Suspense>
           
           <div className="absolute top-12 left-1/2 -translate-x-1/2 bg-brand-blue text-white px-6 py-3 rounded-full shadow-2xl flex items-center gap-3 z-10 animate-slide-up glass-reflection">

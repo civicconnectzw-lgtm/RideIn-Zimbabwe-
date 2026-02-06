@@ -1,10 +1,13 @@
 
 import mapboxgl from 'mapbox-gl';
 
-// Accessing process.env safely
-const TOKEN = typeof process !== 'undefined' ? process.env.MAPBOX_TOKEN : '';
+const TOKEN = process.env.MAPBOX_TOKEN || '';
 const BASE_GEOCODING_URL = 'https://api.mapbox.com/geocoding/v5/mapbox.places';
 const BASE_DIRECTIONS_URL = 'https://api.mapbox.com/directions/v5/mapbox/driving';
+
+if (!TOKEN) {
+  console.error('[Mapbox Service] CRITICAL: MAPBOX_TOKEN is missing. Map features will fail.');
+}
 
 export interface GeoResult {
   address: string;
@@ -12,16 +15,14 @@ export interface GeoResult {
   lng: number;
 }
 
-// Simple in-memory cache for geocoding results
 const geocodeCache = new Map<string, GeoResult[]>();
 
 export const mapboxService = {
-  /**
-   * searchAddress: Converts text to coordinates with caching
-   */
+  hasToken: () => !!TOKEN,
+
   async searchAddress(query: string): Promise<GeoResult[]> {
     if (!query || query.length < 3 || !TOKEN) {
-      console.warn('[Mapbox] Query too short or Token missing');
+      console.warn("[Mapbox] Search aborted: Query too short or Token missing.");
       return [];
     }
     
@@ -34,7 +35,10 @@ export const mapboxService = {
       const url = `${BASE_GEOCODING_URL}/${encodeURIComponent(query)}.json?access_token=${TOKEN}&country=zw&bbox=25.0,-22.5,33.5,-15.5&limit=3`;
       
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Geocoding request failed');
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Geocoding failed (${res.status}): ${errorText}`);
+      }
       const data = await res.json();
 
       const results = data.features.map((f: any) => ({
@@ -43,22 +47,16 @@ export const mapboxService = {
         lat: f.center[1]
       }));
 
-      // Cache the result
       geocodeCache.set(cacheKey, results);
       return results;
     } catch (e) {
-      console.error("Geocoding failed", e);
+      console.error("[Mapbox Geocoding] Error:", e);
       return [];
     }
   },
 
-  /**
-   * reverseGeocode: Converts lat/lng back to address
-   */
   async reverseGeocode(lat: number, lng: number): Promise<string> {
-    if (!TOKEN) return "Unknown Location";
-    const cacheKey = `rev_${lat.toFixed(5)}_${lng.toFixed(5)}`;
-    
+    if (!TOKEN) return "Location Locked (Token Missing)";
     try {
       const url = `${BASE_GEOCODING_URL}/${lng},${lat}.json?access_token=${TOKEN}&limit=1`;
       const res = await fetch(url);
@@ -73,11 +71,11 @@ export const mapboxService = {
     }
   },
 
-  /**
-   * getRoute: Returns the polyline geometry and distance/duration
-   */
   async getRoute(start: { lat: number, lng: number }, end: { lat: number, lng: number }) {
-    if (!TOKEN) return null;
+    if (!TOKEN) {
+      console.warn("[Mapbox] Routing aborted: Token missing.");
+      return null;
+    }
 
     try {
       const startCoord = `${start.lng},${start.lat}`;
@@ -85,7 +83,7 @@ export const mapboxService = {
       const url = `${BASE_DIRECTIONS_URL}/${startCoord};${endCoord}?geometries=geojson&access_token=${TOKEN}`;
 
       const res = await fetch(url);
-      if (!res.ok) throw new Error('Routing request failed');
+      if (!res.ok) throw new Error(`Routing failed with status: ${res.status}`);
       const data = await res.json();
 
       if (!data.routes || data.routes.length === 0) return null;
@@ -97,7 +95,7 @@ export const mapboxService = {
         distance: (route.distance / 1000).toFixed(1)
       };
     } catch (e) {
-      console.error("Routing failed", e);
+      console.error("[Mapbox Routing] Error:", e);
       return null;
     }
   }

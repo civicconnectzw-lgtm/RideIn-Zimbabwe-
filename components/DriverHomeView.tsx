@@ -16,11 +16,9 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [marketIntel, setMarketIntel] = useState<string>('');
-  
   const [biddingTrip, setBiddingTrip] = useState<Trip | null>(null);
   const [counterAmount, setCounterAmount] = useState<string>('');
   const [loading, setLoading] = useState(false);
-
   const [location, setLocation] = useState<{lat: number, lng: number}>({ lat: -17.8252, lng: 31.0335 });
   const lastRotation = useRef(0);
   const lastCoords = useRef<{lat: number, lng: number} | null>(null);
@@ -41,13 +39,7 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
           lastCoords.current = newCoords;
 
           if (isOnline) {
-            ablyService.publishDriverLocation(
-              user.id, 
-              user.city || 'Harare', 
-              newCoords.lat, 
-              newCoords.lng, 
-              lastRotation.current
-            );
+            ablyService.publishDriverLocation(user.id, user.city || 'Harare', newCoords.lat, newCoords.lng, lastRotation.current);
           }
         },
         undefined,
@@ -60,28 +52,16 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
   useEffect(() => {
     let unsubRequests: (() => void) | null = null;
     if (isOnline) {
-      // Fetch Market Intel
       geminiService.getMarketIntel(user.city || 'Harare').then(setMarketIntel);
-
-      ablyService.enterDriverPresence(user.city || 'Harare', location.lat, location.lng, { 
-        userId: user.id, 
-        role: 'driver',
-        avatar: user.avatar,
-        name: user.name
-      });
-      
+      ablyService.enterDriverPresence(user.city || 'Harare', location.lat, location.lng, { userId: user.id, role: 'driver', avatar: user.avatar, name: user.name });
       const setupSubs = async () => {
         const cleanup = await ablyService.subscribeToRequests(user.city || 'Harare', location.lat, location.lng, (data: Trip) => {
            setAvailableTrips(prev => prev.some(t => t.id === data.id) ? prev : [data, ...prev]);
         });
         unsubRequests = cleanup;
       };
-      
       setupSubs();
-    } else {
-      setMarketIntel('');
     }
-    
     return () => { 
       if (unsubRequests) unsubRequests();
       if (isOnline) ablyService.leaveDriverPresence(user.city || 'Harare', location.lat, location.lng); 
@@ -101,18 +81,10 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
 
   const sortedTrips = useMemo(() => {
     return availableTrips
-      .map(trip => ({
-        ...trip,
-        dist: getHaversineDistance(location.lat, location.lng, trip.pickup.lat, trip.pickup.lng)
-      }))
+      .map(trip => ({ ...trip, dist: getHaversineDistance(location.lat, location.lng, trip.pickup.lat, trip.pickup.lng) }))
       .filter(trip => trip.dist < 25) 
       .sort((a, b) => a.dist - b.dist);
   }, [availableTrips, location]);
-
-  const handleOpenBidding = (trip: Trip) => {
-    setBiddingTrip(trip);
-    setCounterAmount(trip.proposed_price.toString());
-  };
 
   const handlePlaceBid = async () => {
     if (!biddingTrip) return;
@@ -121,27 +93,14 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
       await xanoService.submitBid(biddingTrip.id, parseFloat(counterAmount), user);
       setBiddingTrip(null);
       setAvailableTrips(prev => prev.filter(t => t.id !== biddingTrip.id));
-    } catch (e) { 
-      alert("Bid deployment failed. The mission may have been claimed by another node."); 
-    } finally { 
-      setLoading(false); 
-    }
+    } catch (e) { alert("Bid failed."); } finally { setLoading(false); }
   };
 
   if (activeTrip) return <ActiveTripView trip={activeTrip} role="driver" onClose={() => setActiveTrip(null)} />;
 
   return (
     <div className="h-screen flex flex-col bg-[#000814] relative overflow-hidden font-sans">
-      <SideDrawer 
-        isOpen={isDrawerOpen} 
-        onClose={() => setIsDrawerOpen(false)} 
-        user={user} 
-        onLogout={onLogout} 
-        activeView={activeView} 
-        onNavigate={setActiveView} 
-        onUserUpdate={onUserUpdate} 
-      />
-      
+      <SideDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} user={user} onLogout={onLogout} activeView={activeView} onNavigate={setActiveView} onUserUpdate={onUserUpdate} />
       <div className="bg-[#001D3D] p-6 pt-12 flex justify-between items-center shadow-2xl safe-top border-b border-white/5 shrink-0 z-30">
          <button onClick={() => setIsDrawerOpen(true)} className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-white haptic-press"><i className="fa-solid fa-bars-staggered text-xl"></i></button>
          <div className="text-center">
@@ -151,39 +110,27 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
               <p className="font-black text-white text-[11px] uppercase tracking-widest">{isOnline ? 'Protocol: Online' : 'Dormant'}</p>
             </div>
          </div>
-         <button 
-           onClick={() => setIsOnline(!isOnline)} 
-           className={`px-5 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all haptic-press ${isOnline ? 'bg-brand-orange text-white shadow-lg' : 'bg-white/10 text-white/40'}`}
-         >
+         <button onClick={() => setIsOnline(!isOnline)} className={`px-5 py-3 rounded-2xl font-black text-[9px] uppercase tracking-widest transition-all haptic-press ${isOnline ? 'bg-brand-orange text-white shadow-lg' : 'bg-white/10 text-white/40'}`}>
             {isOnline ? 'GO OFFLINE' : 'GO ONLINE'}
          </button>
       </div>
-
       <div className="flex-1 p-4 space-y-4 pb-32 overflow-y-auto no-scrollbar relative">
-         <div className="scanline"></div>
          {isOnline ? (
             <>
                {marketIntel && (
                   <div className="bg-brand-orange/10 border border-brand-orange/20 rounded-3xl p-6 mb-2 animate-fade-in relative overflow-hidden group">
-                     <div className="absolute top-0 right-0 p-3 opacity-20"><i className="fa-solid fa-brain-circuit text-2xl text-brand-orange"></i></div>
                      <p className="text-[9px] font-black text-brand-orange uppercase tracking-[0.3em] mb-2">Neural Market Intel</p>
                      <p className="text-[11px] font-bold text-white/80 leading-relaxed italic">"{marketIntel}"</p>
                   </div>
                )}
-               
                {sortedTrips.length === 0 ? (
                   <div className="h-full flex flex-col items-center justify-center py-20 text-white/20 text-center animate-fade-in">
-                     <div className="relative mb-8">
-                        <i className="fa-solid fa-satellite-dish text-6xl animate-pulse"></i>
-                        <div className="absolute inset-0 bg-brand-orange/20 blur-2xl rounded-full"></div>
-                     </div>
+                     <i className="fa-solid fa-satellite-dish text-6xl animate-pulse mb-6"></i>
                      <h3 className="text-xs font-black uppercase tracking-[0.4em] mb-2">Scanning Grid...</h3>
-                     <p className="text-[9px] font-bold uppercase tracking-[0.2em] max-w-[200px]">Waiting for tactical dispatches in the {user.city} sector</p>
                   </div>
                ) : (
                   sortedTrips.map(trip => (
                      <Card key={trip.id} className="p-7 animate-slide-up bg-[#001D3D] border-0 rounded-[2.5rem] shadow-2xl relative overflow-hidden group border border-white/5">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-brand-orange/5 rounded-bl-[4rem] -mr-8 -mt-8"></div>
                         <div className="flex justify-between items-start mb-6">
                            <Badge color={trip.type === VehicleType.FREIGHT ? 'orange' : 'blue'}>{trip.category}</Badge>
                            <div className="text-right">
@@ -193,17 +140,17 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
                         </div>
                         <div className="space-y-4 mb-8">
                            <div className="flex gap-4">
-                              <div className="w-2 h-2 bg-brand-orange rounded-full mt-1.5 shrink-0 shadow-[0_0_10px_#FF5F00]"></div>
+                              <div className="w-2 h-2 bg-brand-orange rounded-full mt-1.5 shrink-0"></div>
                               <p className="text-xs font-bold text-white/70 truncate">{trip.pickup.address}</p>
                            </div>
                            <div className="flex gap-4">
-                              <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 shrink-0 shadow-[0_0_10px_#3b82f6]"></div>
+                              <div className="w-2 h-2 bg-blue-500 rounded-full mt-1.5 shrink-0"></div>
                               <p className="text-xs font-bold text-white/70 truncate">{trip.dropoff.address}</p>
                            </div>
                         </div>
                         <div className="flex gap-3 relative z-10">
                            <Button variant="ghost" className="flex-1 py-4 text-[9px] font-black uppercase tracking-widest !rounded-2xl text-white/30" onClick={() => setAvailableTrips(prev => prev.filter(t => t.id !== trip.id))}>Skip</Button>
-                           <Button className="flex-[2] py-4 text-[9px] font-black uppercase tracking-widest !rounded-2xl shadow-xl shadow-brand-orange/10" variant="secondary" onClick={() => handleOpenBidding(trip)}>Engage</Button>
+                           <Button className="flex-[2] py-4 text-[9px] font-black uppercase tracking-widest !rounded-2xl shadow-xl" variant="secondary" onClick={() => { setBiddingTrip(trip); setCounterAmount(trip.proposed_price.toString()); }}>Engage</Button>
                         </div>
                      </Card>
                   ))
@@ -211,15 +158,11 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
             </>
          ) : (
             <div className="h-full flex flex-col items-center justify-center py-20 text-white/10 animate-fade-in">
-               <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6">
-                  <i className="fa-solid fa-moon text-4xl"></i>
-               </div>
+               <div className="w-24 h-24 rounded-full bg-white/5 flex items-center justify-center mb-6"><i className="fa-solid fa-moon text-4xl"></i></div>
                <h3 className="text-lg font-black tracking-tight uppercase">Dormant Node</h3>
-               <p className="text-[10px] font-bold mt-4 uppercase tracking-[0.2em] max-w-[200px] text-center">Activate your online protocol to receive tactical dispatches</p>
             </div>
          )}
       </div>
-
       {biddingTrip && (
          <div className="fixed inset-0 z-[500] flex items-end justify-center bg-black/80 backdrop-blur-xl p-6 animate-fade-in">
             <div className="bg-[#001D3D] w-full max-w-sm rounded-[3rem] p-10 shadow-2xl animate-slide-up border border-white/10">
@@ -228,20 +171,9 @@ export const DriverHomeView: React.FC<{ user: User; onLogout: () => void; onUser
                   <button onClick={() => setBiddingTrip(null)} className="text-white/40 hover:text-white transition-colors haptic-press"><i className="fa-solid fa-xmark text-xl"></i></button>
                </div>
                <div className="mb-14 text-center">
-                  <p className="text-[10px] font-black text-brand-orange uppercase tracking-[0.3em] mb-6">Counter Offer ($)</p>
-                  <input 
-                     type="number"
-                     autoFocus
-                     inputMode="decimal"
-                     value={counterAmount}
-                     onChange={e => setCounterAmount(e.target.value)}
-                     className="bg-transparent border-0 text-center text-8xl font-black text-white outline-none w-full tracking-tighter"
-                  />
-                  <div className="h-0.5 w-24 bg-brand-orange/20 mx-auto mt-4 rounded-full"></div>
+                  <input type="number" autoFocus inputMode="decimal" value={counterAmount} onChange={e => setCounterAmount(e.target.value)} className="bg-transparent border-0 text-center text-8xl font-black text-white outline-none w-full tracking-tighter" />
                </div>
-               <Button className="w-full py-7 text-sm font-black uppercase tracking-[0.3em] rounded-3xl shadow-2xl" variant="secondary" onClick={handlePlaceBid} loading={loading}>
-                 Execute Deployment
-               </Button>
+               <Button className="w-full py-7 text-sm font-black uppercase tracking-[0.3em] rounded-3xl shadow-2xl" variant="secondary" onClick={handlePlaceBid} loading={loading}>Execute Deployment</Button>
             </div>
          </div>
       )}

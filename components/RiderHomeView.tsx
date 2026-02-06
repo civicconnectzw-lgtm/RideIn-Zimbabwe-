@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, Suspense, useMemo } from 'react';
+import React, { useState, useEffect, Suspense, useMemo, useRef } from 'react';
 import { User, Trip, TripStatus, VehicleType, Bid, PassengerCategory, FreightCategory } from '../types';
 import { Button, Card, Badge, Input } from './Shared';
 import { xanoService } from '../services/xano';
@@ -9,13 +9,13 @@ import { geminiService } from '../services/gemini';
 import { ActiveTripView } from './ActiveTripView';
 import { SideDrawer } from './SideDrawer';
 import { OnboardingView } from './OnboardingView';
+import { ScoutView } from './ScoutView';
 import { PASSENGER_CATEGORIES, FREIGHT_CATEGORIES } from '../constants';
 
 const MapView = React.lazy(() => import('./MapView'));
 
-const calculateSuggestedFare = (distanceStr: string) => {
-  const dist = parseFloat(distanceStr.replace(/[^\d.]/g, '')) || 0;
-  return Math.max(2, dist <= 3 ? 2 : dist <= 5 ? 3 : 4 + (dist - 5) * 0.5);
+const calculateSuggestedFare = (distanceKm: number) => {
+  return Math.max(2, distanceKm <= 3 ? 2 : distanceKm <= 5 ? 3 : 3 + (distanceKm - 5) * 0.5);
 };
 
 export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserUpdate: (user: User) => void }> = ({ user, onLogout, onUserUpdate }) => {
@@ -24,13 +24,14 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
   const [activeTab, setActiveTab] = useState<'ride' | 'freight'>('ride');
   const [viewState, setViewState] = useState<'idle' | 'review' | 'bidding' | 'active'>('idle');
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showRequestSuccess, setShowRequestSuccess] = useState(false);
+  const [showScout, setShowScout] = useState(false);
   
   const [loading, setLoading] = useState(false);
   const [pickup, setPickup] = useState('');
   const [dropoff, setDropoff] = useState('');
   const [pickupCoords, setPickupCoords] = useState<{lat: number, lng: number} | null>(null);
   const [dropoffCoords, setDropoffCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([31.0335, -17.8252]);
   const [routeGeometry, setRouteGeometry] = useState<any>(null);
   const [routeDetails, setRouteDetails] = useState<{distance: string, duration: string} | null>(null);
   const [isRouting, setIsRouting] = useState(false);
@@ -38,340 +39,347 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [bids, setBids] = useState<Bid[]>([]);
   const [nearbyDrivers, setNearbyDrivers] = useState<Map<string, any>>(new Map());
-  const [proposedFare, setProposedFare] = useState<string>('');
-  const [fareExplanation, setFareExplanation] = useState('');
+  const [proposedFare, setProposedFare] = useState<number>(0);
+  const [selectedCategory, setSelectedCategory] = useState<string>(PASSENGER_CATEGORIES[0].name);
   
-  const [isMagicActive, setIsMagicActive] = useState(false);
-  const [magicPrompt, setMagicPrompt] = useState('');
-  const [aiStatus, setAiStatus] = useState('');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isAiParsing, setIsAiParsing] = useState(false);
+  const [fareExplanation, setFareExplanation] = useState<string | null>(null);
 
-  const currentCategories = activeTab === 'ride' ? PASSENGER_CATEGORIES : FREIGHT_CATEGORIES;
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>(currentCategories[0].id);
-
+  // Tactical Initial GPS Lock
   useEffect(() => {
-    const hasSeenOnboarding = localStorage.getItem(`onboarding_rider_${user.id}`);
-    if (!hasSeenOnboarding) setShowOnboarding(true);
-  }, [user.id]);
-
-  // Subscription for Nearby Drivers
-  useEffect(() => {
-    if (viewState === 'idle' || viewState === 'review') {
-      const unsub = ablyService.subscribeToNearbyDrivers(user.city || 'Harare', -17.8252, 31.0335, (driver) => {
-         setNearbyDrivers(prev => {
-            const next = new Map(prev);
-            next.set(driver.driverId, driver);
-            return next;
-         });
-      });
-      return () => { unsub(); };
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const coords: [number, number] = [pos.coords.longitude, pos.coords.latitude];
+          setMapCenter(coords);
+          setPickupCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          mapboxService.reverseGeocode(pos.coords.latitude, pos.coords.longitude).then(setPickup);
+        },
+        (err) => console.warn("[GPS] Signal acquisition failed", err),
+        { enableHighAccuracy: true }
+      );
     }
-  }, [viewState, user.city]);
+  }, []);
 
+  // Sync with Active Trip
   useEffect(() => {
-    if (routeDetails) {
-      const fare = calculateSuggestedFare(routeDetails.distance);
-      setProposedFare(fare.toString());
-      if (viewState === 'review') {
-        geminiService.explainFare({ 
-          pickup, 
-          dropoff, 
-          price: fare.toString() 
-        }).then(setFareExplanation);
+    const unsub = xanoService.subscribeToActiveTrip((trip) => {
+      if (trip && trip.status !== TripStatus.COMPLETED && trip.status !== TripStatus.CANCELLED) {
+        setActiveTrip(trip);
+        setViewState('active');
+      } else if (viewState === 'active') {
+        setActiveTrip(null);
+        setViewState('idle');
       }
-    }
-  }, [routeDetails, viewState, pickup, dropoff]);
+    });
+    return unsub;
+  }, [viewState]);
 
+  // Presence for Nearby Drivers
   useEffect(() => {
-    if (viewState === 'bidding' && activeTrip) {
-      const unsub = ablyService.subscribeToRideEvents(activeTrip.id, (data) => {
-        if (data.id && !bids.some(b => b.id === data.id)) {
-          setBids(prev => [data as Bid, ...prev]);
-        }
+    const cleanup = ablyService.subscribeToNearbyDrivers(user.city || 'Harare', mapCenter[1], mapCenter[0], (driver) => {
+      setNearbyDrivers(prev => {
+        const next = new Map(prev);
+        next.set(driver.driverId, driver);
+        return next;
       });
-      const tripSub = xanoService.subscribeToActiveTrip((updatedTrip) => {
-        if (updatedTrip && (updatedTrip.status === TripStatus.ACCEPTED || updatedTrip.status === TripStatus.ARRIVING)) {
-          setActiveTrip(updatedTrip);
-          setViewState('active');
-        }
-      });
-      return () => { unsub(); tripSub(); };
-    }
-  }, [viewState, activeTrip, bids]);
+    });
+    return cleanup;
+  }, [mapCenter, user.city]);
 
-  const processLocations = async (p: string, d: string) => {
-    setIsRouting(true);
-    setAiStatus('Mapping Landmarks...');
-    try {
-      let startQuery = p;
-      if (p.toLowerCase().includes('current') && navigator.geolocation) {
-        startQuery = await new Promise<string>((res) => {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => res(`${pos.coords.latitude},${pos.coords.longitude}`),
-            () => res(p)
-          );
-        });
-      }
-
-      const pResults = await mapboxService.searchAddress(startQuery + " Zimbabwe");
-      const dResults = await mapboxService.searchAddress(d + " Zimbabwe");
-      
-      if (pResults[0] && dResults[0]) {
-        setPickup(pResults[0].address);
-        setDropoff(dResults[0].address);
-        setPickupCoords({ lat: pResults[0].lat, lng: pResults[0].lng });
-        setDropoffCoords({ lat: dResults[0].lat, lng: dResults[0].lng });
-        const route = await mapboxService.getRoute(pResults[0], dResults[0]);
+  // Route Calculation
+  useEffect(() => {
+    if (pickupCoords && dropoffCoords) {
+      setIsRouting(true);
+      mapboxService.getRoute(pickupCoords, dropoffCoords).then(route => {
         if (route) {
           setRouteGeometry(route.geometry);
-          setRouteDetails({ distance: route.distance + " km", duration: route.duration + " mins" });
+          setRouteDetails({ distance: `${route.distance}km`, duration: `${route.duration}m` });
+          const fare = calculateSuggestedFare(parseFloat(route.distance));
+          setProposedFare(fare);
           setViewState('review');
         }
-      } else {
-        alert("Tactical data error: Could not pinpoint locations.");
-      }
-    } catch (e) { console.error(e); } 
-    finally { setIsRouting(false); setAiStatus(''); }
-  };
+        setIsRouting(false);
+      });
+    }
+  }, [pickupCoords, dropoffCoords]);
 
-  const handleMagicDispatch = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!magicPrompt.trim() || loading) return;
-    
-    setLoading(true);
-    setAiStatus('Synchronizing Neural Link...');
-    
+  // Listen for Bids
+  useEffect(() => {
+    if (activeTrip && activeTrip.status === TripStatus.BIDDING) {
+      const unsub = ablyService.subscribeToRideEvents(activeTrip.id, (event) => {
+        if (event.id) { // it's a bid
+          setBids(prev => prev.some(b => b.id === event.id) ? prev : [...prev, event]);
+        }
+      });
+      return unsub;
+    }
+  }, [activeTrip]);
+
+  const handleMagicDispatch = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsAiParsing(true);
     try {
-      const result = await geminiService.parseDispatchPrompt(magicPrompt, pickupCoords || undefined);
-      if (!result) throw new Error("Link unstable");
-
-      setActiveTab(result.type === 'freight' ? 'freight' : 'ride');
-      
-      const cats = result.type === 'freight' ? FREIGHT_CATEGORIES : PASSENGER_CATEGORIES;
-      const matchedCat = cats.find(c => c.name.toLowerCase().includes(result.category.toLowerCase())) || cats[0];
-      setSelectedCategoryId(matchedCat.id);
-
-      setAiStatus(`Triangulating ${result.dropoff}...`);
-      await processLocations(result.pickup, result.dropoff);
-      
-      setIsMagicActive(false);
-      setMagicPrompt('');
+      const result = await geminiService.parseDispatchPrompt(aiPrompt, pickupCoords || undefined);
+      if (result) {
+        if (result.pickup) {
+          setPickup(result.pickup);
+          const p = await mapboxService.searchAddress(result.pickup);
+          if (p[0]) setPickupCoords({ lat: p[0].lat, lng: p[0].lng });
+        }
+        if (result.dropoff) {
+          setDropoff(result.dropoff);
+          const d = await mapboxService.searchAddress(result.dropoff);
+          if (d[0]) setDropoffCoords({ lat: d[0].lat, lng: d[0].lng });
+        }
+        if (result.category) setSelectedCategory(result.category);
+        setAiPrompt('');
+      }
     } catch (e) {
-      alert("AI Uplink Failed: Please try standard input.");
+      console.error("[Magic] Dispatch parse error", e);
     } finally {
-      setLoading(false);
-      setAiStatus('');
+      setIsAiParsing(false);
     }
   };
 
   const handleRequestTrip = async () => {
-    if (!pickupCoords || !dropoffCoords || !routeDetails) return;
+    if (!pickupCoords || !dropoffCoords) return;
     setLoading(true);
     try {
-      const trip = await xanoService.requestTrip({ 
-        riderId: user.id, 
+      const trip = await xanoService.requestTrip({
+        riderId: user.id,
         type: activeTab === 'ride' ? VehicleType.PASSENGER : VehicleType.FREIGHT,
-        category: currentCategories.find(c => c.id === selectedCategoryId)?.name || 'Standard',
-        pickup: { address: pickup, lat: pickupCoords.lat, lng: pickupCoords.lng }, 
-        dropoff: { address: dropoff, lat: dropoffCoords.lat, lng: dropoffCoords.lng }, 
-        proposed_price: parseFloat(proposedFare), 
-        distance_km: parseFloat(routeDetails.distance), 
-        duration: routeDetails.duration,
+        category: selectedCategory,
+        pickup: { address: pickup, lat: pickupCoords.lat, lng: pickupCoords.lng },
+        dropoff: { address: dropoff, lat: dropoffCoords.lat, lng: dropoffCoords.lng },
+        proposed_price: proposedFare,
+        distance_km: parseFloat(routeDetails?.distance || "0"),
+        duration: parseInt(routeDetails?.duration || "0"),
       });
       setActiveTrip(trip);
-      setBids([]);
-      setShowRequestSuccess(true);
-      setTimeout(() => {
-        setShowRequestSuccess(false);
-        setViewState('bidding');
-      }, 2000);
-    } catch (e) { alert("Broadcast failed."); } 
-    finally { setLoading(false); }
+      setViewState('bidding');
+    } catch (e) {
+      alert("Grid error: Trip request failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAcceptBid = async (bid: Bid) => {
+    if (!activeTrip) return;
+    setLoading(true);
+    try {
+      const trip = await xanoService.acceptBid(activeTrip.id, bid.id);
+      setActiveTrip(trip);
+      setViewState('active');
+    } catch (e) {
+      alert("Protocol error: Could not secure bid.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExplainFare = async () => {
+    if (!proposedFare) return;
+    setFareExplanation("Consulting Fare Guard...");
+    const explanation = await geminiService.explainFare({
+      pickup,
+      dropoff,
+      price: proposedFare.toString()
+    });
+    setFareExplanation(explanation);
   };
 
   const mapMarkers = useMemo(() => {
     const markers: any[] = [];
-    if (pickupCoords) markers.push({ id: 'p1', ...pickupCoords, type: 'pickup' });
-    if (dropoffCoords) markers.push({ id: 'd1', ...dropoffCoords, type: 'dropoff' });
-    
-    // Add drivers
-    nearbyDrivers.forEach((d) => {
-       markers.push({ id: d.driverId, lat: d.lat, lng: d.lng, type: 'driver', rotation: d.rotation });
-    });
-
+    if (pickupCoords) markers.push({ id: 'pickup', ...pickupCoords, type: 'pickup' });
+    if (dropoffCoords) markers.push({ id: 'dropoff', ...dropoffCoords, type: 'dropoff' });
+    nearbyDrivers.forEach(d => markers.push({ id: d.driverId, ...d, type: 'driver' }));
     return markers;
   }, [pickupCoords, dropoffCoords, nearbyDrivers]);
 
+  if (viewState === 'active' && activeTrip) {
+    return <ActiveTripView trip={activeTrip} role="rider" onClose={() => setViewState('idle')} />;
+  }
+
   return (
-    <div className="h-screen flex flex-col bg-[#001D3D] relative overflow-y-auto font-sans">
-      {showOnboarding && <OnboardingView role="rider" onComplete={() => {
-        localStorage.setItem(`onboarding_rider_${user.id}`, 'true');
-        setShowOnboarding(false);
-      }} />}
+    <div className="h-screen flex flex-col bg-[#000814] relative overflow-hidden font-mono">
+      <SideDrawer 
+        isOpen={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)} 
+        user={user} 
+        onLogout={onLogout} 
+        activeView={activeView} 
+        onNavigate={(view) => {
+           if (view === 'scout') setShowScout(true);
+           else setActiveView(view);
+        }} 
+        onUserUpdate={onUserUpdate} 
+      />
 
-      {showRequestSuccess && (
-        <div className="fixed inset-0 z-[600] bg-brand-blue flex flex-col items-center justify-center p-8 text-white animate-fade-in">
-           <div className="w-24 h-24 rounded-full bg-emerald-500 flex items-center justify-center mb-8 shadow-2xl animate-drive-in">
-              <i className="fa-solid fa-check text-4xl"></i>
-           </div>
-           <h2 className="text-3xl font-black italic tracking-tighter uppercase mb-2">Uplink Active</h2>
-           <p className="text-[10px] font-black text-brand-orange uppercase tracking-[0.4em]">Broadcasting to Fleet</p>
+      {showScout && <ScoutView onClose={() => setShowScout(false)} />}
+
+      {/* Header HUD */}
+      <div className="absolute top-0 inset-x-0 z-30 p-6 pt-12 safe-top bg-gradient-to-b from-[#000814] to-transparent pointer-events-none">
+        <div className="flex items-center justify-between pointer-events-auto">
+          <button onClick={() => setIsDrawerOpen(true)} className="w-12 h-12 bg-white/5 backdrop-blur-3xl rounded-2xl flex items-center justify-center text-white border border-white/10 haptic-press shadow-2xl">
+            <i className="fa-solid fa-bars-staggered text-xl"></i>
+          </button>
+          
+          <div className="flex bg-white/5 backdrop-blur-3xl rounded-2xl p-1 border border-white/10 shadow-2xl">
+            <button onClick={() => setActiveTab('ride')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'ride' ? 'bg-brand-orange text-white shadow-lg' : 'text-white/30'}`}>Rider</button>
+            <button onClick={() => setActiveTab('freight')} className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${activeTab === 'freight' ? 'bg-brand-orange text-white shadow-lg' : 'text-white/30'}`}>Freight</button>
+          </div>
+
+          <div className="w-12 h-12"></div>
         </div>
-      )}
-
-      <SideDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} user={user} onLogout={onLogout} activeView={activeView} onNavigate={setActiveView} onUserUpdate={onUserUpdate} />
-      
-      <div className="flex-1 min-h-[50vh] relative">
-         <Suspense fallback={<div className="w-full h-full bg-brand-blue/5" />}>
-           <MapView markers={mapMarkers} routeGeometry={routeGeometry} />
-         </Suspense>
-         
-         <div className="absolute top-12 inset-x-4 flex justify-between items-center z-20 pointer-events-none">
-            <div className="flex items-center gap-3">
-              <button onClick={() => setIsDrawerOpen(true)} className="w-12 h-12 bg-white/95 rounded-full flex items-center justify-center pointer-events-auto shadow-xl"><i className="fa-solid fa-bars-staggered text-lg text-slate-800"></i></button>
-              <div className="bg-brand-blue/90 backdrop-blur-md px-4 py-2.5 rounded-full border border-white/10 flex items-center gap-2 pointer-events-auto shadow-xl animate-fade-in">
-                 <div className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse shadow-[0_0_5px_#10b981]"></div>
-                 <span className="text-[9px] font-black text-white uppercase tracking-widest">{nearbyDrivers.size} Fleet Nodes Online</span>
-              </div>
-            </div>
-            
-            <div className="flex flex-col items-end gap-3 pointer-events-auto">
-              <button onClick={() => setIsMagicActive(true)} className="w-12 h-12 bg-brand-orange text-white rounded-full shadow-2xl flex items-center justify-center animate-fade-in hover:scale-105 transition-transform">
-                <i className="fa-solid fa-wand-magic-sparkles text-lg"></i>
-              </button>
-              <button className="w-12 h-12 bg-white/95 rounded-full shadow-xl flex items-center justify-center text-red-500"><i className="fa-solid fa-shield-heart text-lg"></i></button>
-            </div>
-         </div>
       </div>
 
-      {isMagicActive && (
-        <div className="absolute inset-0 z-[400] bg-brand-blue/98 backdrop-blur-3xl flex flex-col items-center justify-center p-8 text-center animate-fade-in overflow-y-auto">
-          <div className="scanline absolute inset-0 opacity-10 pointer-events-none"></div>
-          <button onClick={() => setIsMagicActive(false)} className="absolute top-12 right-6 w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-white text-xl"><i className="fa-solid fa-xmark"></i></button>
-          <div className="mb-12 text-white">
-            <h1 className="text-5xl font-black italic tracking-tighter text-brand-orange">Neural Dispatch</h1>
-            <p className="text-white/40 text-[10px] font-black uppercase tracking-[0.5em] mt-2">Speak Your Mission</p>
+      {/* Core Map Logic */}
+      <div className="flex-1 relative">
+        <Suspense fallback={<div className="w-full h-full bg-[#000814] animate-pulse" />}>
+          <MapView 
+            center={mapCenter} 
+            markers={mapMarkers} 
+            routeGeometry={routeGeometry} 
+            zoom={14} 
+            onLocationPick={(lat, lng) => {
+              if (!pickupCoords) {
+                setPickupCoords({ lat, lng });
+                mapboxService.reverseGeocode(lat, lng).then(setPickup);
+              } else if (!dropoffCoords) {
+                setDropoffCoords({ lat, lng });
+                mapboxService.reverseGeocode(lat, lng).then(setDropoff);
+              }
+            }}
+          />
+        </Suspense>
+
+        {/* Tactical UI Overlays */}
+        {viewState === 'idle' && (
+          <div className="absolute bottom-10 inset-x-6 z-30 space-y-4 animate-slide-up">
+            <Card variant="glass" className="!p-4 bg-black/60 backdrop-blur-2xl border-white/5 shadow-2xl rounded-[2.5rem]">
+              <div className="relative mb-4">
+                <Input 
+                  variant="glass" 
+                  placeholder="Where to, Commander?" 
+                  icon="wand-magic-sparkles" 
+                  value={aiPrompt}
+                  onChange={e => setAiPrompt(e.target.value)}
+                  className="!bg-transparent border-0"
+                  onKeyDown={e => e.key === 'Enter' && handleMagicDispatch()}
+                />
+                {aiPrompt && (
+                  <button onClick={handleMagicDispatch} disabled={isAiParsing} className="absolute right-2 top-1/2 -translate-y-1/2 w-10 h-10 bg-brand-orange rounded-xl text-white shadow-lg haptic-press">
+                    {isAiParsing ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-bolt"></i>}
+                  </button>
+                )}
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors" onClick={() => {/* Open search */}}>
+                   <div className="w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_8px_#3B82F6]"></div>
+                   <p className="text-xs font-bold text-white/40 truncate">{pickup || 'Tactical Pickup Point'}</p>
+                </div>
+                <div className="flex items-center gap-4 p-4 rounded-2xl bg-white/5 border border-white/5 hover:bg-white/10 transition-colors">
+                   <div className="w-2 h-2 rounded-full bg-brand-orange shadow-[0_0_8px_#FF5F00]"></div>
+                   <p className="text-xs font-bold text-white/40 truncate">{dropoff || 'Set Mission Objective'}</p>
+                </div>
+              </div>
+            </Card>
           </div>
-          <form onSubmit={handleMagicDispatch} className="w-full max-w-sm">
-            <input 
-              autoFocus
-              className="w-full bg-white/5 border-2 border-white/10 rounded-3xl p-7 text-white text-xl font-bold placeholder-white/10 focus:outline-none focus:border-brand-orange transition-all mb-8 shadow-inner"
-              placeholder="e.g. Copa Cabana to Borrowdale..."
-              value={magicPrompt}
-              onChange={e => setMagicPrompt(e.target.value)}
-            />
-            {aiStatus && <p className="text-[10px] font-black text-brand-orange uppercase tracking-[0.3em] mb-10 animate-pulse">{aiStatus}</p>}
-            <Button type="submit" variant="secondary" className="w-full py-7 text-lg rounded-3xl shadow-2xl" disabled={loading || !magicPrompt.trim()}>
-              {loading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : 'Deploy Logistics'}
-            </Button>
-          </form>
-        </div>
-      )}
+        )}
 
-      {viewState === 'idle' && !isMagicActive && (
-         <div className="bg-white p-8 rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] safe-bottom animate-slide-up relative z-10 border-t border-slate-100 shrink-0">
-            <div className="w-14 h-1.5 bg-slate-100 rounded-full mx-auto mb-8"></div>
-            <div className="flex bg-slate-50 p-1.5 rounded-2xl mb-8 border border-slate-100">
-                <button onClick={() => setActiveTab('ride')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${activeTab === 'ride' ? 'bg-white text-brand-blue shadow-md' : 'text-slate-400'}`}>PASSENGER</button>
-                <button onClick={() => setActiveTab('freight')} className={`flex-1 py-3 text-[10px] font-black uppercase tracking-[0.2em] rounded-xl transition-all ${activeTab === 'freight' ? 'bg-white text-brand-blue shadow-md' : 'text-slate-400'}`}>FREIGHT</button>
+        {viewState === 'review' && (
+          <div className="absolute bottom-0 inset-x-0 z-40 bg-[#001D3D] rounded-t-[3rem] p-8 shadow-2xl animate-slide-up border-t border-white/5">
+            <div className="w-14 h-1.5 bg-white/5 rounded-full mx-auto mb-8"></div>
+            
+            <div className="flex justify-between items-end mb-8">
+               <div>
+                  <h3 className="text-[10px] font-black text-brand-orange uppercase tracking-[0.4em] mb-1">Mission Quote</h3>
+                  <div className="text-4xl font-black text-white tracking-tighter">${proposedFare.toFixed(2)}</div>
+               </div>
+               <button onClick={handleExplainFare} className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center text-white/50 hover:text-white transition-colors haptic-press">
+                  <i className="fa-solid fa-shield-halved"></i>
+               </button>
             </div>
-            <form onSubmit={async (e) => { e.preventDefault(); await processLocations(pickup, dropoff); }}>
-                <Input label="Point Alpha" placeholder="Pickup Address" value={pickup} onChange={e => setPickup(e.target.value)} icon="circle" required />
-                <div className="h-4"></div>
-                <Input label="Point Omega" placeholder="Destination" value={dropoff} onChange={e => setDropoff(e.target.value)} icon="location-dot" required />
+
+            {fareExplanation && (
+              <div className="mb-8 p-4 bg-brand-orange/5 border border-brand-orange/10 rounded-2xl animate-fade-in">
+                 <p className="text-[10px] text-brand-orange font-bold leading-relaxed italic">"{fareExplanation}"</p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-3 mb-8">
+              {(activeTab === 'ride' ? PASSENGER_CATEGORIES : FREIGHT_CATEGORIES).map(cat => (
+                <button 
+                  key={cat.id} 
+                  onClick={() => setSelectedCategory(cat.name)}
+                  className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 haptic-press ${selectedCategory === cat.name ? 'border-brand-orange bg-brand-orange/10 shadow-[0_0_15px_rgba(255,95,0,0.1)]' : 'border-white/5 bg-white/5 opacity-40'}`}
+                >
+                  <i className={`fa-solid fa-${cat.icon} text-lg ${selectedCategory === cat.name ? 'text-brand-orange' : 'text-white'}`}></i>
+                  <span className="text-[8px] font-black uppercase tracking-widest">{cat.name.split(' ')[0]}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex gap-4">
+               <Button variant="ghost" className="flex-1 py-6 !rounded-2xl text-white/20" onClick={() => {setPickupCoords(null); setDropoffCoords(null); setViewState('idle');}}>Abort</Button>
+               <Button variant="secondary" className="flex-[3] py-6 !rounded-3xl text-sm font-black uppercase tracking-[0.3em] shadow-[0_20px_40px_rgba(255,95,0,0.2)]" loading={loading} onClick={handleRequestTrip}>Initiate Request</Button>
+            </div>
+          </div>
+        )}
+
+        {viewState === 'bidding' && (
+          <div className="absolute inset-0 z-50 bg-[#000814]/90 backdrop-blur-xl flex flex-col p-8 safe-top">
+             <div className="flex-1 flex flex-col items-center justify-center text-center">
+                <div className="relative mb-12">
+                   <div className="absolute -inset-10 bg-brand-orange/10 blur-3xl rounded-full animate-pulse-slow"></div>
+                   <div className="w-32 h-32 border-4 border-brand-orange/20 rounded-[3rem] flex items-center justify-center relative z-10">
+                      <i className="fa-solid fa-satellite-dish text-5xl text-brand-orange animate-pulse"></i>
+                   </div>
+                </div>
                 
-                <div className="flex gap-2 overflow-x-auto no-scrollbar py-6">
-                   {currentCategories.map(cat => (
-                      <button 
-                        key={cat.id} 
-                        type="button" 
-                        onClick={() => setSelectedCategoryId(cat.id)} 
-                        className={`shrink-0 flex items-center gap-3 px-6 py-4 rounded-2xl border-2 transition-all ${selectedCategoryId === cat.id ? 'border-brand-blue bg-blue-50/50 text-brand-blue' : 'border-slate-50 bg-slate-50 text-gray-400'}`}
-                      >
-                         <i className={`fa-solid fa-${cat.icon} text-sm`}></i>
-                         <span className="text-[10px] font-black uppercase tracking-[0.2em]">{cat.name}</span>
-                      </button>
-                   ))}
+                <h2 className="text-3xl font-black text-white italic tracking-tighter mb-4 uppercase">Broadcasting Grid...</h2>
+                <p className="text-blue-100/30 text-[10px] font-bold uppercase tracking-[0.4em] mb-12 max-w-[200px] leading-relaxed">Securing tactical bids from nearby drivers in {user.city}</p>
+
+                <div className="w-full space-y-4 max-w-sm">
+                   {bids.length === 0 ? (
+                      <div className="py-20 border-2 border-dashed border-white/5 rounded-[2.5rem] flex flex-col items-center text-white/10 italic">
+                         <span className="text-xs">Scanning sector...</span>
+                      </div>
+                   ) : (
+                      bids.map(bid => (
+                        <Card key={bid.id} className="!bg-[#001D3D] border-0 !p-5 rounded-[2rem] flex items-center justify-between animate-scale-in group">
+                           <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-2xl bg-white/5 overflow-hidden">
+                                 <img src={bid.driverAvatar || `https://ui-avatars.com/api/?name=${bid.driverName}&background=random`} alt={bid.driverName} />
+                              </div>
+                              <div className="text-left">
+                                 <h4 className="font-black text-white text-sm tracking-tight">{bid.driverName}</h4>
+                                 <div className="flex items-center gap-2 mt-0.5">
+                                    <Badge color="orange" className="!text-[7px]">{bid.driverRating} ★</Badge>
+                                    <span className="text-[8px] text-white/30 font-bold uppercase tracking-widest">{bid.vehicleInfo}</span>
+                                 </div>
+                              </div>
+                           </div>
+                           <div className="text-right flex flex-col items-end gap-2">
+                              <div className="text-xl font-black text-white tracking-tighter">${bid.amount}</div>
+                              <button onClick={() => handleAcceptBid(bid)} className="px-4 py-2 bg-brand-orange text-white text-[9px] font-black uppercase tracking-widest rounded-xl shadow-lg active:scale-95 transition-all">Select</button>
+                           </div>
+                        </Card>
+                      ))
+                   )}
                 </div>
-                <Button type="submit" className="w-full mt-4 py-6 text-sm font-black uppercase tracking-[0.3em]" disabled={isRouting}>
-                    {isRouting ? <i className="fa-solid fa-circle-notch fa-spin"></i> : 'Blast Market'}
-                </Button>
-            </form>
-         </div>
-      )}
-
-      {viewState === 'review' && (
-        <div className="bg-white p-10 rounded-t-[3rem] shadow-[0_-20px_50px_rgba(0,0,0,0.2)] safe-bottom animate-slide-up relative z-10 shrink-0">
-           <div className="flex justify-between items-center mb-10">
-              <button onClick={() => setViewState('idle')} className="text-slate-400 font-black uppercase text-[10px] tracking-widest"><i className="fa-solid fa-arrow-left mr-2"></i> Adjust</button>
-              <Badge color="blue" className="px-4 py-1.5">{routeDetails?.distance}</Badge>
-           </div>
-           
-           <div className="text-center mb-10">
-              <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.3em] mb-4">Proposed Bounty</p>
-              <div className="text-8xl font-black text-slate-900 tracking-tighter flex items-center justify-center gap-1">
-                <span className="text-2xl text-slate-300 font-bold">$</span>{proposedFare}
-              </div>
-           </div>
-
-           {fareExplanation && (
-             <div className="bg-blue-50/50 p-5 rounded-2xl mb-10 border border-blue-100 flex gap-4">
-                <i className="fa-solid fa-shield-check text-brand-blue mt-1"></i>
-                <p className="text-[11px] font-medium text-slate-600 leading-relaxed italic">"{fareExplanation}"</p>
              </div>
-           )}
-
-           <Button onClick={handleRequestTrip} className="w-full py-7 text-lg font-black uppercase tracking-[0.3em] rounded-3xl shadow-2xl" variant="primary" disabled={loading}>
-              {loading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : 'Confirm & Broadcast'}
-           </Button>
-        </div>
-      )}
-
-      {viewState === 'bidding' && activeTrip && (
-        <div className="bg-white p-10 rounded-t-[3rem] shadow-[0_-20px_60px_rgba(0,0,0,0.3)] safe-bottom animate-slide-up h-[75vh] flex flex-col relative z-10 overflow-y-auto">
-           <div className="flex justify-between items-center mb-8">
-              <div className="flex items-center gap-4">
-                 <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-ping"></div>
-                 <h3 className="font-black text-slate-900 tracking-tight text-xl">Scanning Marketplace...</h3>
-              </div>
-              <button onClick={async () => {
-                if(activeTrip) await xanoService.cancelTrip(activeTrip.id);
-                setViewState('idle');
-              }} className="text-[10px] font-black text-red-500 uppercase tracking-[0.3em]">Abort</button>
-           </div>
-           
-           <div className="flex-1 overflow-y-auto no-scrollbar space-y-6">
-              {bids.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center py-20 opacity-30">
-                   <i className="fa-solid fa-satellite-dish text-6xl text-brand-blue animate-pulse mb-6"></i>
-                   <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Waiting for Pilots</p>
-                </div>
-              ) : (
-                bids.map(bid => (
-                  <Card key={bid.id} className="p-7 border border-slate-100 flex items-center gap-5 animate-slide-up rounded-3xl shadow-lg hover:border-brand-blue transition-colors">
-                     <div className="w-16 h-16 rounded-2xl bg-slate-100 overflow-hidden shrink-0">
-                        <img src={`https://ui-avatars.com/api/?name=${bid.driverName}&background=random&bold=true`} alt={bid.driverName} className="w-full h-full object-cover" />
-                     </div>
-                     <div className="flex-1 min-w-0">
-                        <div className="font-black text-slate-900 text-lg tracking-tight truncate">{bid.driverName}</div>
-                        <div className="flex items-center gap-3 text-[10px] text-gray-400 font-bold uppercase tracking-widest mt-1">
-                           <span className="text-brand-orange">{bid.driverRating} ★</span>
-                           <span className="truncate">{bid.vehicleInfo}</span>
-                        </div>
-                     </div>
-                     <div className="text-right shrink-0">
-                        <div className="text-4xl font-black text-brand-blue tracking-tighter mb-2">${bid.amount}</div>
-                        <Button variant="secondary" className="px-5 py-2.5 !text-[9px] !rounded-xl font-black uppercase tracking-widest" onClick={() => handleRequestTrip()} disabled={loading}>
-                           Engage
-                        </Button>
-                     </div>
-                  </Card>
-                ))
-              )}
-           </div>
-        </div>
-      )}
-
-      {viewState === 'active' && activeTrip && <ActiveTripView trip={activeTrip} role="rider" onClose={() => { setActiveTrip(null); setViewState('idle'); }} />}
+             
+             <button onClick={() => xanoService.cancelTrip(activeTrip!.id).then(() => setViewState('idle'))} className="mt-auto py-8 text-[10px] font-black text-white/20 uppercase tracking-[0.5em] hover:text-red-500 transition-colors">
+                Cancel Deployment
+             </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
