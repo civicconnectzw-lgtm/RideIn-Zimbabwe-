@@ -1,5 +1,5 @@
 import React, { useState, useEffect, Suspense } from 'react';
-import { User } from './types';
+import { User, HomeViewProps, LoginViewProps } from './types';
 import { xanoService } from './services/xano';
 import { ablyService } from './services/ably';
 import { SplashAnimation } from './components/SplashAnimation';
@@ -41,10 +41,10 @@ const lazyLoad = <T extends React.ComponentType<any>>(
 };
 
 // Strategic View Imports
-const LoginView = lazyLoad<React.FC<{ onLogin: (user: User) => void }>>(() => import('./components/LoginView'), 'LoginView');
-const RiderHomeView = lazyLoad<React.FC<any>>(() => import('./components/RiderHomeView'), 'RiderHomeView');
-const DriverHomeView = lazyLoad<React.FC<any>>(() => import('./components/DriverHomeView'), 'DriverHomeView');
-const PendingApprovalView = lazyLoad<React.FC<any>>(() => import('./components/PendingApprovalView'), 'PendingApprovalView');
+const LoginView = lazyLoad<React.FC<LoginViewProps>>(() => import('./components/LoginView'), 'LoginView');
+const RiderHomeView = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/RiderHomeView'), 'RiderHomeView');
+const DriverHomeView = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/DriverHomeView'), 'DriverHomeView');
+const PendingApprovalView = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/PendingApprovalView'), 'PendingApprovalView');
 
 const App: React.FC = () => {
   const [user, setUser] = useState<User | null>(null);
