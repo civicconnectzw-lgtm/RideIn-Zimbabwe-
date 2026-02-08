@@ -10,14 +10,14 @@ export default {
     extend: {
       colors: {
         brand: {
-          blue: '#5B5FE3',
-          'blue-light': '#7B7FF0',
-          orange: '#FF5F00',
-          'orange-light': '#FF7A33',
+          blue: '#1B2A4A',
+          'blue-light': '#2196F3',
+          orange: '#F5A623',
+          'orange-light': '#FFB74D',
         }
       },
       fontFamily: {
-        sans: ['ui-sans-serif', 'system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', '"Noto Sans"', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"', '"Noto Color Emoji"'],
+        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
       },
       animation: {
