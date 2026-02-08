@@ -132,6 +132,7 @@ function sanitizeResponse<T>(obj: T): T {
 
   const clean: Record<string, unknown> = {};
   for (const key in obj as any) {
+  for (const key in obj) {
     if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
     const k = key.toLowerCase();
     if (FORBIDDEN_KEYS.has(k) || k.includes('reference-email')) continue;
