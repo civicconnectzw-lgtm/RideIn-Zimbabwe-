@@ -21,7 +21,7 @@ export default defineConfig(({ mode }) => {
           name: 'RideIn Zimbabwe',
           short_name: 'RideIn',
           description: 'Zimbabwe\'s Premium Mobility App - Powered by Gemini AI',
-          theme_color: '#002B5B',
+          theme_color: '#1B2A4A',
           background_color: '#ffffff',
           display: 'standalone',
           orientation: 'portrait',
