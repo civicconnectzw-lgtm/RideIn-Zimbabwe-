@@ -7,12 +7,34 @@ query "auth/me" verb=GET {
   }
 
   stack {
+    // Check if token is revoked
+    db.get revoked_tokens {
+      field_name = "token"
+      field_value = $auth.authToken
+    } as $revoked_check
+  
+    precondition ($revoked_check == null) {
+      error = "Session has been invalidated. Please log in again."
+    }
+
     // Fetch the authenticated user record
     db.get users {
       field_name = "id"
       field_value = $auth.id
     } as $user_record
   
+    // Validate user exists
+    precondition ($user_record != null) {
+      error_type = "unauthorized"
+      error = "User not found or session invalid."
+    }
+
+    // Log successful validation
+    util.log {
+      level = "info"
+      message = "Token validated successfully for user: " & $user_record.name & " (ID: " & $auth.id & ")"
+    }
+
     // Create response object with explicitly selected fields to ensure security (excluding password)
     var $response_data {
       value = $user_record

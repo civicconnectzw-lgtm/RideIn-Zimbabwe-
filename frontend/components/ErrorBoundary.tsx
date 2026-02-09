@@ -74,7 +74,7 @@ export class ErrorBoundary extends Component<Props, State> {
                             errorMessage.toLowerCase().includes('offline');
 
       return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-[#001D3D] text-white font-mono">
+        <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-brand-blue text-white font-mono">
           <div className="w-20 h-20 rounded-3xl bg-red-500/20 flex items-center justify-center mb-6 text-red-500">
             <i className={`fa-solid ${isNetworkError ? 'fa-wifi-slash' : 'fa-triangle-exclamation'} text-3xl`}></i>
           </div>
@@ -110,7 +110,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <div className="flex flex-col sm:flex-row gap-4 mt-6">
             <button 
               onClick={this.handleReset}
-              className="px-8 py-4 bg-brand-orange text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] haptic-press shadow-xl shadow-brand-orange/20 hover:bg-brand-orange/90 transition-all"
+              className="px-8 py-4 bg-brand-orange text-brand-text-dark rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] haptic-press shadow-xl shadow-brand-orange/20 hover:bg-brand-orange/90 transition-all"
             >
               Try Again
             </button>

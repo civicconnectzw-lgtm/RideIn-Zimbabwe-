@@ -6,6 +6,9 @@ import { ablyService } from '../services/ably';
 import { geminiService } from '../services/gemini';
 import { SideDrawer } from './SideDrawer';
 import { ActiveTripView } from './ActiveTripView';
+import { TripHistoryView } from './TripHistoryView';
+import { ProfileView } from './ProfileView';
+import { FavouritesView } from './FavouritesView';
 import { useToastContext } from '../hooks/useToastContext';
 
 interface DriverHomeViewProps {
@@ -19,6 +22,9 @@ export const DriverHomeView: React.FC<DriverHomeViewProps> = ({ user, onLogout, 
   const [availableTrips, setAvailableTrips] = useState<Trip[]>([]);
   const [activeTrip, setActiveTrip] = useState<Trip | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState<boolean>(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showFavourites, setShowFavourites] = useState(false);
   const [location, setLocation] = useState<{ lat: number; lng: number }>({ lat: -17.8252, lng: 31.0335 });
   const [bidPrices, setBidPrices] = useState<{ [key: string]: number }>({});
   const locationRef = useRef<{ lat: number; lng: number }>({ lat: -17.8252, lng: 31.0335 });
@@ -92,11 +98,27 @@ export const DriverHomeView: React.FC<DriverHomeViewProps> = ({ user, onLogout, 
         user={user}
         onLogout={onLogout}
         activeView="map"
-        onNavigate={() => null}
+        onNavigate={(v) => {
+          if (v === 'history') {
+            setShowHistory(true);
+          } else if (v === 'profile') {
+            setShowProfile(true);
+          } else if (v === 'favourites') {
+            setShowFavourites(true);
+          } else if (v === 'map') {
+            // Already on map - do nothing
+          } else {
+            toast.info(`${v.charAt(0).toUpperCase() + v.slice(1)} is coming soon!`);
+          }
+        }}
         onUserUpdate={onUserUpdate}
       />
+      
+      {showHistory && <TripHistoryView user={user} onClose={() => setShowHistory(false)} />}
+      {showProfile && <ProfileView user={user} onClose={() => setShowProfile(false)} onUserUpdate={onUserUpdate} />}
+      {showFavourites && <FavouritesView user={user} onClose={() => setShowFavourites(false)} />}
 
-      <div className="bg-white p-6 pt-12 flex justify-between items-center shadow-sm safe-top border-b border-zinc-100 z-30">
+      <div className="bg-gradient-to-r from-white to-brand-bg-soft p-6 pt-12 flex justify-between items-center shadow-md safe-top border-b border-zinc-100 z-30">
         <button
           onClick={() => setIsDrawerOpen(true)}
           className="w-10 h-10 bg-zinc-50 rounded-full flex items-center justify-center text-black border border-zinc-100"
@@ -108,7 +130,14 @@ export const DriverHomeView: React.FC<DriverHomeViewProps> = ({ user, onLogout, 
           <p className="font-black text-black text-xs uppercase">{isOnline ? 'Online' : 'Offline'}</p>
         </div>
         <button
-          onClick={() => setIsOnline(!isOnline)}
+          onClick={() => {
+            // Item 25: Subscription check before going online
+            if (!isOnline && user.subscription?.status === 'expired') {
+              toast.error('Your subscription has expired. Please renew to go online.');
+              return;
+            }
+            setIsOnline(!isOnline);
+          }}
           className={`px-5 py-2 rounded-full font-bold text-[10px] uppercase transition-all ${isOnline ? 'bg-red-50 text-red-500' : 'bg-brand-blue text-white'}`}
         >
           {isOnline ? 'Stop' : 'Start'}
@@ -124,9 +153,15 @@ export const DriverHomeView: React.FC<DriverHomeViewProps> = ({ user, onLogout, 
             </div>
           ) : (
             availableTrips.map((trip: Trip) => (
-              <Card key={trip.id} className="bg-white border-zinc-100 shadow-md">
+              <Card key={trip.id} className="bg-white border-zinc-100 shadow-lg hover:shadow-xl transition-shadow">
                 <div className="flex justify-between items-start mb-6">
-                  <Badge color="blue">{trip.category}</Badge>
+                  <div className="flex gap-2">
+                    {/* Item 17: Trip type badge (PASSENGER vs FREIGHT) */}
+                    <Badge color={trip.type === 'PASSENGER' ? 'blue' : 'orange'}>
+                      {trip.type}
+                    </Badge>
+                    <Badge color="blue">{trip.category}</Badge>
+                  </div>
                   <div className="text-right">
                     <div className="text-xs text-zinc-400 font-bold uppercase tracking-widest mb-1">Your Offer</div>
                     <div className="flex items-center gap-2">
@@ -147,6 +182,33 @@ export const DriverHomeView: React.FC<DriverHomeViewProps> = ({ user, onLogout, 
                     </div>
                   </div>
                 </div>
+                
+                {/* Item 17: Show freight-specific info */}
+                {trip.type === 'FREIGHT' && (
+                  <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                    {trip.itemDescription && (
+                      <div className="mb-2">
+                        <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wide">Item: </span>
+                        <span className="text-xs text-orange-900">{trip.itemDescription}</span>
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 text-[10px] text-orange-600">
+                      {trip.requiresAssistance && (
+                        <div className="flex items-center gap-1">
+                          <i className="fa-solid fa-hand-holding-hand"></i>
+                          <span className="font-bold uppercase">Requires Assistance</span>
+                        </div>
+                      )}
+                      {trip.cargoPhotos && trip.cargoPhotos.length > 0 && (
+                        <div className="flex items-center gap-1">
+                          <i className="fa-solid fa-image"></i>
+                          <span className="font-bold">{trip.cargoPhotos.length} photo{trip.cargoPhotos.length > 1 ? 's' : ''}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+                
                 <div className="space-y-3 mb-6">
                   <div className="flex gap-3 text-xs font-bold text-zinc-600 truncate">
                     <div className="w-1.5 h-1.5 bg-zinc-200 rounded-full mt-1.5"></div>
@@ -173,7 +235,7 @@ export const DriverHomeView: React.FC<DriverHomeViewProps> = ({ user, onLogout, 
                     className="flex-2 py-3 text-[10px]"
                     onClick={async () => {
                       try {
-                        await xanoService.submitBid(trip.id, trip.proposed_price, user);
+                        await xanoService.submitBid(trip.id, bidPrices[trip.id] || trip.proposed_price, user);
                         toast.success('Bid accepted successfully!');
                       } catch (err) {
                         console.error('Failed to accept bid:', err);

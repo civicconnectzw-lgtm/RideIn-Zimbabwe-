@@ -25,11 +25,23 @@ query "trips/id/offers" verb=POST {
       field_name = "id"
       field_value = $auth.id
     } as $current_user
+
+    // Log bid attempt
+    util.log {
+      level = "info"
+      message = "Bid submission attempt by user ID: " & $auth.id & " (role: " & $current_user.role & ") for trip: " & $input.trip_id
+    }
   
     // Ensure the authenticated user is an approved driver.
     precondition ($current_user.driver_approved) {
       error_type = "accessdenied"
       error = "You must be an approved driver to place a bid."
+    }
+
+    // Ensure the authenticated user is a driver
+    precondition ($current_user.role == "driver") {
+      error_type = "accessdenied"
+      error = "Access denied. Only drivers can place bids."
     }
   
     // Retrieve the trip details.
@@ -65,6 +77,12 @@ query "trips/id/offers" verb=POST {
         status     : "pending"
       }
     } as $new_bid
+
+    // Log successful bid creation
+    util.log {
+      level = "info"
+      message = "Bid created successfully - Trip: " & $input.trip_id & ", Driver: " & $driver_id_to_use & ", Offer: " & $input.offer_price
+    }
   
     // Send a realtime notification to the rider.
     api.realtime_event {

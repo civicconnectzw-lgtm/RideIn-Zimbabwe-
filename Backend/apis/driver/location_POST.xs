@@ -17,6 +17,24 @@ query location verb=POST {
   }
 
   stack {
+    // Validate that the authenticated user is a driver
+    db.get users {
+      field_name = "id"
+      field_value = $auth.id
+    } as $user
+
+    // Log location update attempt
+    util.log {
+      level = "info"
+      message = "Location update from user ID: " & $auth.id & " (role: " & $user.role & ")"
+    }
+
+    // Ensure user is a driver
+    precondition ($user.role == "driver") {
+      error_type = "accessdenied"
+      error = "Access denied. Only drivers can update location."
+    }
+
     // Update the driver's location in the database, or create a record if it doesn't exist.
     db.add_or_edit driver_locations {
       field_name = "driver_id"

@@ -1,11 +1,23 @@
 import { GoogleGenAI, Type } from "@google/genai";
 
 export const handler = async (event: any) => {
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://ridein-zimbabwe.netlify.app";
+  
+  // Prevent wildcard origin when credentials are enabled (security requirement)
+  if (ALLOWED_ORIGIN === "*") {
+    console.error("CORS Error: Cannot use wildcard origin '*' with credentials enabled");
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Invalid CORS configuration" })
+    };
+  }
+  
   const headers = {
     "Content-Type": "application/json",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
     "Access-Control-Allow-Headers": "Content-Type",
-    "Access-Control-Allow-Methods": "POST, OPTIONS"
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Credentials": "true"
   };
 
   if (event.httpMethod === "OPTIONS") return { statusCode: 200, headers, body: "" };

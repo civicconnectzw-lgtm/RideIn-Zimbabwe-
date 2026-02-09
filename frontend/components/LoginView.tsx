@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import { User, VehicleType } from '../types';
 import { ZIM_CITIES } from '../constants';
 import { Button, Input } from './Shared';
-import { xanoService } from '../services/xano';
+import { useAuthContext } from '../contexts/AuthContext';
 import { compressImage } from '../services/utils';
 
 export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
+  const authContext = useAuthContext();
   const [isSignup, setIsSignup] = useState(false);
   const [role, setRole] = useState<'rider' | 'driver'>('rider');
   const [step, setStep] = useState(1);
@@ -19,6 +20,13 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const [photos, setPhotos] = useState<(string | null)[]>([null, null, null, null]);
   const [vehicleType, setVehicleType] = useState<VehicleType>(VehicleType.PASSENGER);
   const [vehicleCategory, setVehicleCategory] = useState<string>('Standard');
+
+  // Item 24: Password reset state
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  const [resetStep, setResetStep] = useState<1 | 2>(1); // 1 = enter phone, 2 = enter code + new password
+  const [resetPhone, setResetPhone] = useState('');
+  const [resetCode, setResetCode] = useState('');
+  const [newPassword, setNewPassword] = useState('');
 
   const handleNext = (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,18 +51,47 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
   const handleSubmit = async () => {
     setLoading(true);
     setError('');
+    
+    // Client-side validation
+    const cleanPhone = phone.replace(/^0+/, ''); // Remove leading zeros
+    
+    if (cleanPhone.length !== 9) {
+      setError('Phone number must be 9 digits (without leading 0)');
+      setLoading(false);
+      return;
+    }
+    
+    if (isSignup) {
+      if (!fullName.trim()) {
+        setError('Name is required');
+        setLoading(false);
+        return;
+      }
+      if (password.length < 8) {
+        setError('Password must be at least 8 characters');
+        setLoading(false);
+        return;
+      }
+    } else {
+      if (password.length < 4) {
+        setError('Password must be at least 4 characters');
+        setLoading(false);
+        return;
+      }
+    }
+    
     try {
-      const formattedPhone = `+263${phone}`;
+      const formattedPhone = `+263${cleanPhone}`;
       let user;
       if (isSignup) {
-        user = await xanoService.signup({
+        user = await authContext.signup({
           name: fullName, phone: formattedPhone, role, city,
           vehicle: role === 'driver' ? { type: vehicleType, category: vehicleCategory, photos: photos.filter(p => p !== null) as string[] } : undefined
         }, password);
       } else {
-        user = await xanoService.login(formattedPhone, password);
+        user = await authContext.login(formattedPhone, password);
       }
-      if (user) onLogin(user);
+      // No need to call onLogin - authContext automatically updates
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -62,13 +99,70 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
     }
   };
 
+  // Item 24: Password reset handlers
+  const handleRequestPasswordReset = async () => {
+    setLoading(true);
+    setError('');
+    
+    const cleanPhone = resetPhone.replace(/^0+/, '');
+    if (cleanPhone.length !== 9) {
+      setError('Phone number must be 9 digits (without leading 0)');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const formattedPhone = `+263${cleanPhone}`;
+      await authContext.requestPasswordReset(formattedPhone);
+      setResetStep(2);
+      setError('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to request password reset');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCompletePasswordReset = async () => {
+    setLoading(true);
+    setError('');
+    
+    const cleanPhone = resetPhone.replace(/^0+/, '');
+    if (!resetCode.trim()) {
+      setError('Please enter the verification code');
+      setLoading(false);
+      return;
+    }
+    if (newPassword.length < 8) {
+      setError('Password must be at least 8 characters');
+      setLoading(false);
+      return;
+    }
+    
+    try {
+      const formattedPhone = `+263${cleanPhone}`;
+      await authContext.completePasswordReset(formattedPhone, resetCode, newPassword);
+      // Reset successful, return to login
+      setShowPasswordReset(false);
+      setResetStep(1);
+      setResetPhone('');
+      setResetCode('');
+      setNewPassword('');
+      setError('');
+    } catch (err: any) {
+      setError(err.message || 'Failed to reset password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="min-h-screen bg-white flex flex-col p-8 safe-top font-sans">
-      <div className="mt-12 mb-12">
-        <h1 className="text-4xl font-black text-black tracking-tighter uppercase leading-none">
+    <div className="min-h-screen bg-brand-bg-soft flex flex-col p-8 safe-top font-sans">
+      <div className="mt-12 mb-12 p-8 rounded-3xl bg-gradient-to-br from-brand-blue to-brand-blue-light shadow-lg">
+        <h1 className="text-4xl font-black text-white tracking-tighter uppercase leading-none">
           {isSignup ? 'Create Account' : 'Welcome back'}
         </h1>
-        <p className="text-zinc-400 font-bold text-xs uppercase tracking-widest mt-2">RideIn Zimbabwe</p>
+        <p className="text-white/80 font-bold text-xs uppercase tracking-widest mt-2">RideIn Zimbabwe</p>
       </div>
 
       <div className="flex-1 flex flex-col max-w-sm mx-auto w-full pb-12">
@@ -144,12 +238,110 @@ export const LoginView: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin
             <Button type="submit" variant="dark" className="w-full py-5 rounded-2xl" loading={loading} disabled={loading}>
               {isSignup ? (step === 1 && role === 'driver' ? 'Next' : 'Create Account') : 'Log In'}
             </Button>
+            
+            {/* Item 24: Forgot Password link */}
+            {!isSignup && (
+              <button 
+                type="button" 
+                onClick={() => setShowPasswordReset(true)} 
+                className="w-full text-[10px] font-bold text-brand-blue uppercase tracking-widest text-center hover:underline"
+              >
+                Forgot Password?
+              </button>
+            )}
+            
             <button type="button" onClick={() => { setIsSignup(!isSignup); setStep(1); }} className="w-full text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center">
               {isSignup ? 'Already have an account? Sign In' : "Don't have an account? Sign Up"}
             </button>
           </div>
         </form>
       </div>
+
+      {/* Item 24: Password Reset Modal */}
+      {showPasswordReset && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-8 bg-black/50">
+          <div className="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl">
+            <div className="mb-6">
+              <h2 className="text-2xl font-black text-black mb-2">
+                {resetStep === 1 ? 'Reset Password' : 'Enter Code'}
+              </h2>
+              <p className="text-xs text-zinc-500 uppercase tracking-widest">
+                {resetStep === 1 ? 'Enter your phone number' : 'Check your SMS for the code'}
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              {resetStep === 1 ? (
+                <>
+                  <Input 
+                    label="Phone Number" 
+                    icon="phone" 
+                    prefixText="+263" 
+                    placeholder="77 000 0000" 
+                    value={resetPhone} 
+                    onChange={e => setResetPhone(e.target.value.replace(/\D/g, ''))} 
+                    maxLength={9} 
+                  />
+                  {error && <div className="text-[10px] font-bold text-red-500 uppercase tracking-widest">{error}</div>}
+                  <Button 
+                    variant="dark" 
+                    className="w-full py-4 rounded-xl" 
+                    onClick={handleRequestPasswordReset}
+                    loading={loading}
+                    disabled={loading}
+                  >
+                    Send Code
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <Input 
+                    label="Verification Code" 
+                    icon="key" 
+                    placeholder="Enter 6-digit code" 
+                    value={resetCode} 
+                    onChange={e => setResetCode(e.target.value)} 
+                    maxLength={6}
+                  />
+                  <Input 
+                    label="New Password" 
+                    icon="lock" 
+                    type="password" 
+                    placeholder="••••••••" 
+                    value={newPassword} 
+                    onChange={e => setNewPassword(e.target.value)} 
+                  />
+                  {error && <div className="text-[10px] font-bold text-red-500 uppercase tracking-widest">{error}</div>}
+                  <Button 
+                    variant="dark" 
+                    className="w-full py-4 rounded-xl" 
+                    onClick={handleCompletePasswordReset}
+                    loading={loading}
+                    disabled={loading}
+                  >
+                    Reset Password
+                  </Button>
+                </>
+              )}
+              
+              <button 
+                type="button"
+                onClick={() => {
+                  setShowPasswordReset(false);
+                  setResetStep(1);
+                  setResetPhone('');
+                  setResetCode('');
+                  setNewPassword('');
+                  setError('');
+                }}
+                className="w-full text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-center"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -10,7 +10,7 @@ query "rider/favorites" verb=POST {
     }
   
     // Context of the relationship
-    text role_context?="rider_to_driver"
+    text role_context?="driver"
   }
 
   stack {

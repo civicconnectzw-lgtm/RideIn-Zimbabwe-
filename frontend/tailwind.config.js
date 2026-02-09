@@ -10,14 +10,25 @@ export default {
     extend: {
       colors: {
         brand: {
-          blue: '#1B2A4A',
-          'blue-light': '#2196F3',
-          orange: '#F5A623',
-          'orange-light': '#FFB74D',
+          // Primary Colors (Brand Identity)
+          blue: '#0056E0',        // Sapphire Blue - Main theme color
+          'blue-light': '#5AA7FA', // Sky Blue - Highlights and hover states
+          
+          // Accent Colors
+          orange: '#FF8200',      // Vivid Orange - Primary buttons and CTAs
+          'orange-light': '#FFD700', // Sunrise Yellow - Secondary highlights
+          
+          // Neutral Backgrounds
+          'bg-soft': '#F5F8FA',   // Soft White - General background
+          'bg-muted': '#D5DCE5',  // Muted Gray - Borders and dividers
+          
+          // Text Colors
+          'text-dark': '#2C2C2C', // Charcoal Black - Main text
+          'text-light': '#EFEFEF', // Sleek Off-White - Reverse text on dark backgrounds
         }
       },
       fontFamily: {
-        sans: ['system-ui', '-apple-system', 'BlinkMacSystemFont', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'Arial', 'sans-serif', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"'],
+        sans: ['Roboto', '"Apple Color Emoji"', '"Segoe UI Emoji"', '"Segoe UI Symbol"', 'sans-serif'],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', '"Liberation Mono"', '"Courier New"', 'monospace'],
       },
       animation: {

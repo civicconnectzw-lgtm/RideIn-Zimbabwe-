@@ -6,140 +6,172 @@ interface OnboardingStep {
   title: string;
   description: string;
   icon: string;
-  color: string;
-  highlight: string;
+  gradient: string;
+  accentColor: string;
   tagline: string;
 }
 
 export const PublicOnboardingView: React.FC<{ onComplete: () => void }> = ({ onComplete }) => {
   const [currentStep, setCurrentStep] = useState(0);
-  const [displayText, setDisplayText] = useState('');
-  const [isTyping, setIsTyping] = useState(false);
+  const [isAnimating, setIsAnimating] = useState(false);
 
   const steps: OnboardingStep[] = [
     {
-      title: "TACTICAL_MOBILITY",
-      description: "Zimbabwe's premier AI-driven transport marketplace. Deploying optimized routing for riders and heavy freight across the nation.",
+      title: "Smart Mobility",
+      description: "Zimbabwe's premier AI-powered transport platform. Experience seamless rides and freight delivery with intelligent routing optimized for local conditions.",
       icon: "rocket",
-      color: "text-brand-orange",
-      highlight: "NETWORK_ACTIVE",
-      tagline: "MISSION_READY"
+      gradient: "from-orange-500 via-red-500 to-pink-500",
+      accentColor: "text-orange-500",
+      tagline: "Journey Begins"
     },
     {
-      title: "GEMINI_COGNITION",
-      description: "Harness 'Magic Assist' for natural language dispatch. Simply describe your mission parameters and let our AI handle the logistics.",
+      title: "AI Assistant",
+      description: "Powered by advanced AI for natural language requests. Simply describe where you need to go, and our smart system handles the rest with precision.",
       icon: "brain",
-      color: "text-blue-400",
-      highlight: "NEURAL_LINK_v2.5",
-      tagline: "CORE_INTELLIGENCE"
+      gradient: "from-blue-500 via-indigo-500 to-purple-500",
+      accentColor: "text-blue-500",
+      tagline: "Smart Technology"
     },
     {
-      title: "ELITE_MARKETPLACE",
-      description: "Strategic bidding protocol for total transparency. Drivers compete for your mission, ensuring market-fair pricing every time.",
-      icon: "microchip",
-      color: "text-emerald-500",
-      highlight: "SECURE_GRID",
-      tagline: "PROTOCOL_ALPHA"
+      title: "Fair Pricing",
+      description: "Transparent bidding marketplace ensures competitive rates. Drivers compete for your trip, giving you the power to choose based on price and quality.",
+      icon: "hand-holding-dollar",
+      gradient: "from-emerald-500 via-teal-500 to-cyan-500",
+      accentColor: "text-emerald-500",
+      tagline: "Best Value"
     }
   ];
 
   const step = steps[currentStep];
 
-  useEffect(() => {
-    setIsTyping(true);
-    setDisplayText('');
-    let i = 0;
-    const interval = setInterval(() => {
-      setDisplayText(step.title.slice(0, i + 1));
-      i++;
-      if (i >= step.title.length) {
-        clearInterval(interval);
-        setIsTyping(false);
-      }
-    }, 40);
-    return () => clearInterval(interval);
-  }, [currentStep, step.title]);
-
   const handleNext = () => {
     if (currentStep < steps.length - 1) {
-      setCurrentStep(currentStep + 1);
+      setIsAnimating(true);
+      setTimeout(() => {
+        setCurrentStep(currentStep + 1);
+        setIsAnimating(false);
+      }, 300);
     } else {
       onComplete();
     }
   };
 
+  const handleSkip = () => {
+    onComplete();
+  };
+
   return (
-    <div className="fixed inset-0 z-[100] bg-[#000814] flex flex-col items-center justify-center p-8 animate-fade-in overflow-hidden font-mono text-white">
-      <div className="absolute inset-0 opacity-[0.03] bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] pointer-events-none"></div>
-      <div className="absolute top-0 left-0 w-full h-full opacity-5 pointer-events-none">
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] border border-white/10 rounded-full animate-spin-slow"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] border border-white/5 rounded-full animate-reverse-spin"></div>
+    <div className="fixed inset-0 z-[100] bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex flex-col items-center justify-center p-6 sm:p-8 overflow-hidden">
+      {/* Animated background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
+        <div className={`absolute top-1/4 -left-1/4 w-96 h-96 bg-gradient-to-br ${step.gradient} opacity-10 blur-3xl rounded-full transition-all duration-1000 ease-in-out`}></div>
+        <div className={`absolute bottom-1/4 -right-1/4 w-96 h-96 bg-gradient-to-br ${step.gradient} opacity-10 blur-3xl rounded-full transition-all duration-1000 ease-in-out`}></div>
+        
+        {/* Subtle grid pattern */}
+        <div className="absolute inset-0 opacity-[0.02]" style={{
+          backgroundImage: 'linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px)',
+          backgroundSize: '50px 50px'
+        }}></div>
       </div>
 
-      <div className="w-full max-w-sm relative z-10 flex flex-col items-center text-center">
-        <div className="mb-14 animate-slide-down">
-          <div className="flex items-center justify-center gap-4 mb-4">
-            <span className="text-[9px] font-black text-brand-orange tracking-[0.5em]">PHASE_0{currentStep + 1}</span>
-            <div className="h-[1px] w-8 bg-white/10"></div>
-            <span className="text-[9px] font-black text-white/20 tracking-[0.5em]">{step.tagline}</span>
-          </div>
-          <h1 className="text-2xl font-black text-white italic tracking-tighter">RideIn <span className="text-white/20 uppercase font-mono not-italic text-sm ml-1">v2.5</span></h1>
+      <div className="w-full max-w-md relative z-10 flex flex-col items-center">
+        {/* Brand header */}
+        <div className={`mb-8 sm:mb-12 text-center transition-all duration-500 ${isAnimating ? 'opacity-0 -translate-y-4' : 'opacity-100 translate-y-0'}`}>
+          <h1 className="text-3xl sm:text-4xl font-black text-white tracking-tight mb-2">
+            Ride<span className={`${step.accentColor}`}>In</span>
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-400 font-medium tracking-wider">ZIMBABWE</p>
         </div>
 
-        <div className="relative w-72 h-72 mb-14 flex items-center justify-center">
-          <div className="absolute inset-0 border border-brand-orange/10 rounded-full animate-pulse"></div>
-          <div className="absolute inset-8 border border-white/5 rounded-full animate-reverse-spin"></div>
-          <div className="absolute inset-16 border-2 border-brand-orange/5 rounded-full animate-spin-slow"></div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-[1px] bg-brand-orange/10 animate-spin-slow origin-center"></div>
+        {/* Progress indicators */}
+        <div className="flex items-center gap-2 mb-8 sm:mb-12">
+          {steps.map((_, index) => (
+            <div key={index} className="relative">
+              <div className={`h-2 rounded-full transition-all duration-500 ${
+                index === currentStep 
+                  ? 'w-12 bg-gradient-to-r ' + step.gradient 
+                  : index < currentStep
+                    ? 'w-8 bg-slate-600'
+                    : 'w-8 bg-slate-700'
+              }`}></div>
+              {index === currentStep && (
+                <div className={`absolute inset-0 rounded-full bg-gradient-to-r ${step.gradient} animate-pulse opacity-40`}></div>
+              )}
+            </div>
+          ))}
+        </div>
 
-          <div className="w-44 h-44 rounded-[3.5rem] bg-[#001D3D]/60 backdrop-blur-3xl border border-white/10 flex items-center justify-center shadow-2xl relative group overflow-hidden">
-             <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent"></div>
-             <i className={`fa-solid fa-${step.icon} text-7xl ${step.color} transition-all duration-500 drop-shadow-[0_0_20px_rgba(255,255,255,0.1)] z-10`}></i>
-             
-             <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-1 z-20">
-                {steps.map((_, i) => (
-                  <div key={i} className={`w-1.5 h-1.5 rounded-full ${i <= currentStep ? 'bg-brand-orange shadow-[0_0_5px_#FF5F00]' : 'bg-white/10'}`}></div>
-                ))}
-             </div>
+        {/* Icon container with enhanced animations */}
+        <div className={`relative w-full max-w-xs aspect-square mb-8 sm:mb-12 transition-all duration-500 ${
+          isAnimating ? 'opacity-0 scale-95' : 'opacity-100 scale-100'
+        }`}>
+          {/* Animated rings */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className={`absolute w-full h-full border-2 border-slate-700 rounded-full animate-pulse`}></div>
+            <div className={`absolute w-[85%] h-[85%] border border-slate-700/50 rounded-full animate-reverse-spin`}></div>
+            <div className={`absolute w-[70%] h-[70%] border border-slate-700/30 rounded-full animate-spin-slow`}></div>
           </div>
 
-          <div className="absolute -bottom-4 bg-brand-orange text-white text-[9px] font-black px-6 py-2 rounded-xl tracking-[0.4em] shadow-2xl whitespace-nowrap z-30 animate-scale-in">
-             {step.highlight}
+          {/* Main icon container */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className={`relative w-48 h-48 sm:w-56 sm:h-56 rounded-3xl bg-gradient-to-br from-slate-800 to-slate-900 flex items-center justify-center shadow-2xl border border-slate-700/50 backdrop-blur-xl overflow-hidden group transition-all duration-500 hover:scale-105`}>
+              {/* Glassmorphism overlay */}
+              <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent"></div>
+              
+              {/* Icon with gradient */}
+              <div className={`relative z-10 text-7xl sm:text-8xl bg-gradient-to-br ${step.gradient} bg-clip-text text-transparent transition-all duration-500`}>
+                <i className={`fa-solid fa-${step.icon}`}></i>
+              </div>
+
+              {/* Shine effect on hover */}
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+            </div>
+          </div>
+
+          {/* Step indicator badge */}
+          <div className={`absolute -bottom-4 left-1/2 -translate-x-1/2 px-6 py-2 rounded-full text-xs font-bold tracking-wider shadow-lg bg-gradient-to-r ${step.gradient} text-white whitespace-nowrap z-20`}>
+            {step.tagline}
           </div>
         </div>
 
-        <div className="min-h-[160px] flex flex-col justify-start mb-8">
-          <h2 className="text-3xl font-black text-white tracking-tighter mb-5 uppercase italic h-10 flex items-center justify-center">
-            {displayText}
-            {isTyping && <span className="w-2 h-6 bg-brand-orange ml-1 animate-pulse"></span>}
+        {/* Content section with improved typography */}
+        <div className={`w-full text-center mb-8 sm:mb-12 px-4 transition-all duration-500 ${
+          isAnimating ? 'opacity-0 translate-y-4' : 'opacity-100 translate-y-0'
+        }`}>
+          <h2 className="text-2xl sm:text-3xl font-bold text-white mb-4 tracking-tight">
+            {step.title}
           </h2>
-          <p className="text-blue-100/40 text-[14px] font-bold leading-relaxed max-w-[280px] mx-auto animate-fade-in" key={currentStep}>
+          <p className="text-sm sm:text-base text-slate-300 leading-relaxed max-w-sm mx-auto">
             {step.description}
           </p>
         </div>
 
-        <div className="w-full space-y-4">
+        {/* Action buttons with improved styling */}
+        <div className="w-full space-y-4 px-4">
           <Button 
-            variant="secondary" 
-            className="w-full py-7 text-[12px] font-black uppercase tracking-[0.5em] rounded-[2rem] shadow-[0_20px_40px_rgba(255,95,0,0.15)] haptic-press"
+            variant="primary"
+            className={`w-full py-4 sm:py-5 text-sm sm:text-base font-bold rounded-2xl shadow-xl transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] bg-gradient-to-r ${step.gradient} text-white border-0`}
             onClick={handleNext}
+            aria-label={currentStep === steps.length - 1 ? 'Get started' : 'Continue to next step'}
           >
-            {currentStep === steps.length - 1 ? 'ACTIVATE_NODE' : 'NEXT_PHASE'}
+            {currentStep === steps.length - 1 ? 'Get Started' : 'Continue'}
           </Button>
 
-          <button 
-            onClick={onComplete}
-            className="text-[10px] font-black text-white/10 uppercase tracking-[0.4em] hover:text-brand-orange/60 transition-colors py-3"
-          >
-            SKIP_ENCRYPTION
-          </button>
+          {currentStep < steps.length - 1 && (
+            <button 
+              onClick={handleSkip}
+              className="w-full py-3 text-sm text-slate-400 font-medium hover:text-white transition-colors"
+              aria-label="Skip onboarding"
+            >
+              Skip
+            </button>
+          )}
         </div>
-      </div>
 
-      <div className="absolute bottom-12 inset-x-12 flex justify-between items-center opacity-10 text-[9px] font-black text-white tracking-[0.6em]">
-        <span>REGION::AFRICA_ZW</span>
-        <div className="h-[1px] flex-1 mx-8 bg-white/20"></div>
-        <span>UID_GRID_CALIBRATED</span>
+        {/* Step counter */}
+        <div className="mt-6 sm:mt-8 text-xs text-slate-500 font-medium">
+          Step {currentStep + 1} of {steps.length}
+        </div>
       </div>
     </div>
   );

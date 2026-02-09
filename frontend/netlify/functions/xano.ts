@@ -7,10 +7,22 @@ import fetch from "node-fetch";
  * Aggressively scrubs 'email' AND 'reference-email' from Body, Query, AND Headers.
  */
 export const handler = async (event: any) => {
+  const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || "https://ridein-zimbabwe.netlify.app";
+  
+  // Prevent wildcard origin when credentials are enabled (security requirement)
+  if (ALLOWED_ORIGIN === "*") {
+    console.error("CORS Error: Cannot use wildcard origin '*' with credentials enabled");
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: "Invalid CORS configuration" })
+    };
+  }
+  
   const headers = {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
     "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
-    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS"
+    "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+    "Access-Control-Allow-Credentials": "true"
   };
 
   if (event.httpMethod === "OPTIONS") {
@@ -22,6 +34,7 @@ export const handler = async (event: any) => {
   const XANO_TRIPS_BASE_URL = process.env.XANO_TRIPS_BASE_URL;
   const XANO_RIDER_BASE_URL = process.env.XANO_RIDER_BASE_URL;
   const XANO_DRIVER_BASE_URL = process.env.XANO_DRIVER_BASE_URL;
+  const XANO_ADMIN_BASE_URL = process.env.XANO_ADMIN_BASE_URL;
 
   const path = event.path.replace("/.netlify/functions/xano", "");
   let baseUrl = XANO_RIDER_BASE_URL; 
@@ -31,6 +44,17 @@ export const handler = async (event: any) => {
     baseUrl = XANO_TRIPS_BASE_URL;
   } else if (path.startsWith("/location")) {
     baseUrl = XANO_DRIVER_BASE_URL;
+  } else if (path.startsWith("/admin")) {
+    baseUrl = XANO_ADMIN_BASE_URL || XANO_AUTH_BASE_URL;
+  }
+
+  if (!baseUrl) {
+    console.error(`[Xano Proxy] No base URL configured for path: ${path}`);
+    return {
+      statusCode: 503,
+      headers,
+      body: JSON.stringify({ error: "Backend service not configured." })
+    };
   }
   
   // 1. SCRUB HEADERS

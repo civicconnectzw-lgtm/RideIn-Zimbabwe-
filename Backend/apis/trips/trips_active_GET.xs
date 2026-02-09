@@ -7,6 +7,16 @@ query "trips/active" verb=GET {
   }
 
   stack {
+    // Check if token is revoked
+    db.get revoked_tokens {
+      field_name = "token"
+      field_value = $auth.authToken
+    } as $revoked_check
+  
+    precondition ($revoked_check == null) {
+      error = "Session has been invalidated. Please log in again."
+    }
+
     db.get users {
       field_name = "id"
       field_value = $auth.id

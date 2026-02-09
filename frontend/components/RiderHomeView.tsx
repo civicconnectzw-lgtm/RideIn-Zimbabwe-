@@ -7,8 +7,12 @@ import { geminiService } from '../services/gemini';
 import { ActiveTripView } from './ActiveTripView';
 import { SideDrawer } from './SideDrawer';
 import { ScoutView } from './ScoutView';
+import { TripHistoryView } from './TripHistoryView';
+import { ProfileView } from './ProfileView';
+import { FavouritesView } from './FavouritesView';
 import { PASSENGER_CATEGORIES, FREIGHT_CATEGORIES } from '../constants';
 import { useToastContext } from '../hooks/useToastContext';
+import { calculateTripPrice, getPriceBreakdown } from '../services/pricing';
 
 const MapView = React.lazy(() => import('./MapView'));
 
@@ -17,6 +21,9 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
   const [activeTab, setActiveTab] = useState<'ride' | 'freight'>('ride');
   const [viewState, setViewState] = useState<'idle' | 'review' | 'bidding' | 'active'>('idle');
   const [showScout, setShowScout] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
+  const [showFavourites, setShowFavourites] = useState(false);
   
   const [pickup, setPickup] = useState('');
   const [dropoff, setDropoff] = useState('');
@@ -36,7 +43,19 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
   const [suggestions, setSuggestions] = useState<GeoResult[]>([]);
   const [activeField, setActiveField] = useState<'pickup' | 'dropoff' | null>(null);
 
+  // Item 18: Freight booking fields
+  const [itemDescription, setItemDescription] = useState('');
+  const [requiresAssistance, setRequiresAssistance] = useState(false);
+  const [cargoPhotos, setCargoPhotos] = useState<string[]>([]);
+
   const toast = useToastContext();
+
+  // Calculate price breakdown for display
+  const priceBreakdown = useMemo(() => {
+    if (routeDistance === 0) return null;
+    const vehicleType = activeTab === 'ride' ? VehicleType.PASSENGER : VehicleType.FREIGHT;
+    return getPriceBreakdown(routeDistance, selectedCategory, vehicleType);
+  }, [routeDistance, selectedCategory, activeTab]);
 
   useEffect(() => {
     if (navigator.geolocation) {
@@ -78,7 +97,16 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
         .then(route => {
           if (route) {
             setRouteGeometry(route.geometry);
-            setProposedFare(Math.max(2, parseFloat(route.distance) * 0.8));
+            const distanceKm = parseFloat(route.distance);
+            setRouteDistance(distanceKm);
+            // Route service may return duration as string or number depending on API version
+            setRouteDuration(typeof route.duration === 'string' ? parseFloat(route.duration) : route.duration);
+            
+            // Calculate price based on distance and selected category
+            const vehicleType = activeTab === 'ride' ? VehicleType.PASSENGER : VehicleType.FREIGHT;
+            const price = calculateTripPrice(distanceKm, selectedCategory, vehicleType);
+            setProposedFare(price);
+            
             setViewState('review');
           }
         })
@@ -87,7 +115,7 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
           toast.error('Unable to calculate route. Please try different locations.');
         });
     }
-  }, [pickupCoords, dropoffCoords, toast]);
+  }, [pickupCoords, dropoffCoords, toast, activeTab, selectedCategory]);
 
   const handleAddressSearch = async (query: string, field: 'pickup' | 'dropoff') => {
     if (field === 'pickup') setPickup(query); else setDropoff(query);
@@ -145,6 +173,12 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
       return;
     }
     
+    // Item 18: Validate freight-specific fields
+    if (activeTab === 'freight' && !itemDescription.trim()) {
+      toast.warning('Please describe the items you want to transport');
+      return;
+    }
+    
     try {
       const trip = await xanoService.requestTrip({
         riderId: user.id, 
@@ -153,8 +187,12 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
         pickup: { address: pickup, lat: pickupCoords.lat, lng: pickupCoords.lng },
         dropoff: { address: dropoff, lat: dropoffCoords.lat, lng: dropoffCoords.lng },
         proposed_price: proposedFare, 
-        distance_km: 0, 
-        duration: 0,
+        distance_km: routeDistance, 
+        duration: routeDuration,
+        // Item 18: Include freight-specific fields
+        itemDescription: activeTab === 'freight' ? itemDescription : undefined,
+        requiresAssistance: activeTab === 'freight' ? requiresAssistance : undefined,
+        cargoPhotos: activeTab === 'freight' && cargoPhotos.length > 0 ? cargoPhotos : undefined,
       });
       setActiveTrip(trip); 
       setViewState('bidding');
@@ -170,8 +208,33 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
 
   return (
     <div className="h-screen flex flex-col bg-white relative overflow-hidden font-sans">
-      <SideDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} user={user} onLogout={onLogout} activeView="map" onNavigate={v => v === 'scout' ? setShowScout(true) : null} onUserUpdate={onUserUpdate} />
+      <SideDrawer 
+        isOpen={isDrawerOpen} 
+        onClose={() => setIsDrawerOpen(false)} 
+        user={user} 
+        onLogout={onLogout} 
+        activeView="map" 
+        onNavigate={(v) => {
+          if (v === 'scout') {
+            setShowScout(true);
+          } else if (v === 'history') {
+            setShowHistory(true);
+          } else if (v === 'profile') {
+            setShowProfile(true);
+          } else if (v === 'favourites') {
+            setShowFavourites(true);
+          } else if (v === 'map') {
+            // Already on map - do nothing
+          } else {
+            toast.info(`${v.charAt(0).toUpperCase() + v.slice(1)} is coming soon!`);
+          }
+        }} 
+        onUserUpdate={onUserUpdate} 
+      />
       {showScout && <ScoutView onClose={() => setShowScout(false)} />}
+      {showHistory && <TripHistoryView user={user} onClose={() => setShowHistory(false)} />}
+      {showProfile && <ProfileView user={user} onClose={() => setShowProfile(false)} onUserUpdate={onUserUpdate} />}
+      {showFavourites && <FavouritesView user={user} onClose={() => setShowFavourites(false)} />}
 
       <div className="absolute top-0 inset-x-0 z-30 p-8 pt-16 safe-top bg-gradient-to-b from-white/90 to-transparent pointer-events-none">
         <div className="flex items-center justify-between pointer-events-auto">
@@ -212,14 +275,110 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
         {viewState === 'review' && (
           <div className="absolute bottom-12 inset-x-8 z-30 animate-slide-up">
             <Card className="bg-white rounded-3xl p-8 border border-zinc-100 shadow-2xl">
-              <div className="flex justify-between items-start mb-8">
-                <div><p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Estimated Fare</p><div className="text-4xl font-black text-black tracking-tighter">${proposedFare.toFixed(2)}</div></div>
+              <div className="flex justify-between items-start mb-6">
+                <div>
+                  <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">Estimated Fare</p>
+                  <div className="text-4xl font-black text-black tracking-tighter">${proposedFare.toFixed(2)}</div>
+                  {priceBreakdown && (
+                    <div className="mt-3 space-y-1 text-xs text-zinc-500">
+                      <div className="flex justify-between">
+                        <span>Base price (up to 3 km):</span>
+                        <span className="font-bold">${priceBreakdown.basePrice.toFixed(2)}</span>
+                      </div>
+                      {priceBreakdown.additionalDistance > 0 && (
+                        <div className="flex justify-between">
+                          <span>{priceBreakdown.additionalDistance.toFixed(2)} km @ ${priceBreakdown.pricePerKm}/km:</span>
+                          <span className="font-bold">${priceBreakdown.additionalCharge.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="pt-1 border-t border-zinc-200 flex justify-between font-bold">
+                        <span>Distance:</span>
+                        <span>{routeDistance.toFixed(2)} km</span>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex gap-4 mb-8">
                 {(activeTab === 'ride' ? PASSENGER_CATEGORIES : FREIGHT_CATEGORIES).map(cat => (
                   <button key={cat.id} onClick={() => setSelectedCategory(cat.name)} className={`flex-1 flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all ${selectedCategory === cat.name ? 'border-brand-blue bg-blue-50 text-brand-blue' : 'border-zinc-100 text-zinc-300'}`}><i className={`fa-solid fa-${cat.icon} text-xl`}></i><span className="text-[8px] font-bold uppercase">{cat.name}</span></button>
                 ))}
               </div>
+              
+              {/* Item 18: Freight-specific fields */}
+              {activeTab === 'freight' && (
+                <div className="mb-6 space-y-4 p-4 bg-orange-50 border border-orange-200 rounded-2xl">
+                  <div>
+                    <label className="block text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">
+                      Item Description *
+                    </label>
+                    <textarea
+                      value={itemDescription}
+                      onChange={(e) => setItemDescription(e.target.value)}
+                      placeholder="Describe what you're transporting (e.g., furniture, boxes, equipment)"
+                      className="w-full px-4 py-3 rounded-xl border border-orange-200 focus:border-orange-400 focus:ring-2 focus:ring-orange-100 outline-none text-sm resize-none"
+                      rows={3}
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={requiresAssistance}
+                        onChange={(e) => setRequiresAssistance(e.target.checked)}
+                        className="w-5 h-5 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
+                      />
+                      <span className="text-sm font-bold text-orange-900">
+                        <i className="fa-solid fa-hand-holding-hand mr-2"></i>
+                        Requires loading/unloading assistance
+                      </span>
+                    </label>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-xs font-bold text-orange-600 uppercase tracking-wide mb-2">
+                      Cargo Photos (Optional)
+                    </label>
+                    <div className="flex gap-2 overflow-x-auto">
+                      {cargoPhotos.map((photo, idx) => (
+                        <div key={idx} className="relative flex-shrink-0">
+                          <img src={photo} alt={`Cargo ${idx + 1}`} className="w-20 h-20 rounded-lg object-cover border-2 border-orange-200" />
+                          <button
+                            onClick={() => setCargoPhotos(prev => prev.filter((_, i) => i !== idx))}
+                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full text-xs"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      {cargoPhotos.length < 4 && (
+                        <label className="w-20 h-20 flex-shrink-0 border-2 border-dashed border-orange-300 rounded-lg flex items-center justify-center cursor-pointer hover:border-orange-400 transition">
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                try {
+                                  const { compressImage } = await import('../services/utils');
+                                  const compressed = await compressImage(file);
+                                  setCargoPhotos(prev => [...prev, compressed]);
+                                } catch (err) {
+                                  toast.error('Failed to upload photo');
+                                }
+                              }
+                            }}
+                          />
+                          <i className="fa-solid fa-camera text-orange-400 text-xl"></i>
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+              
               <Button variant="dark" className="w-full py-5 rounded-2xl shadow-lg" onClick={handleRequestTrip}>Request Ride</Button>
             </Card>
           </div>
@@ -256,7 +415,7 @@ export const RiderHomeView: React.FC<{ user: User; onLogout: () => void; onUserU
                 <div className="space-y-3 mb-6">
                   <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Available Drivers</p>
                   {activeTrip.bids.map(bid => (
-                    <div key={bid.id} className="flex items-center gap-3 p-4 bg-zinc-50 rounded-2xl">
+                    <div key={bid.id} className="flex items-center gap-3 p-4 bg-white rounded-2xl shadow-md border border-zinc-100 hover:shadow-lg transition-shadow">
                       <div className="w-12 h-12 rounded-xl bg-zinc-200 overflow-hidden shrink-0">
                         <img src={`https://ui-avatars.com/api/?name=${bid.driverName}&background=random`} alt={bid.driverName} className="w-full h-full object-cover" />
                       </div>

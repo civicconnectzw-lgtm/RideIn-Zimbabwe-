@@ -2,10 +2,23 @@
 import { Trip, TripStatus, User, UserRole } from '../types';
 import { ablyService } from './ably';
 
+// Logger utility - silent in production
+const isDev = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+const logger = {
+  log: (...args: any[]) => isDev && console.log(...args),
+  warn: (...args: any[]) => isDev && console.warn(...args),
+  error: (...args: any[]) => isDev && console.error(...args),
+};
+
 const PROXY_BASE = '/.netlify/functions/xano';
 const REQUEST_TIMEOUT = 30000; // 30 seconds
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
+const TOKEN_EXPIRY_SECONDS = 86400; // 24 hours (matches backend)
+const TOKEN_REFRESH_THRESHOLD = 3600000; // 1 hour before expiry in milliseconds
+
+// Polling intervals for active trip subscription
+const ACTIVE_TRIP_POLL_INTERVAL = 12000; // 12 seconds
 
 // Cache TTL constants
 const CACHE_TTL = {
@@ -32,6 +45,18 @@ export class ApiError extends Error {
   get isValidationError(): boolean { return this.statusCode === 400 || this.statusCode === 422; }
   get isServerError(): boolean { return this.statusCode >= 500; }
   get isNetworkError(): boolean { return this.statusCode === 0; }
+  get isForbiddenError(): boolean { return this.statusCode === 403; }
+}
+
+// ============================================================================
+// Input Validation Helper
+// ============================================================================
+function safeParseInt(value: string | number, fieldName: string): number {
+  const parsed = typeof value === 'number' ? value : parseInt(value, 10);
+  if (isNaN(parsed) || !isFinite(parsed)) {
+    throw new ApiError(`Invalid ${fieldName}: "${value}" is not a valid number`, 400, 'VALIDATION_ERROR');
+  }
+  return parsed;
 }
 
 // ============================================================================
@@ -54,6 +79,8 @@ export interface SignupRequest {
 export interface AuthResponse {
   authToken: string;
   user: User;
+  tokenExpiry?: number; // Token expiry duration in seconds (e.g., 86400 for 24 hours)
+  refreshToken?: string; // For future implementation
 }
 
 export interface CreateTripRequest {
@@ -98,7 +125,9 @@ interface CacheEntry<T> {
 }
 
 class RequestCache {
+  private static readonly MAX_ENTRIES = 100;
   private store = new Map<string, CacheEntry<unknown>>();
+  private maxSize = 100; // Limit cache size to prevent memory leak
 
   get<T>(key: string): T | null {
     const entry = this.store.get(key);
@@ -111,6 +140,11 @@ class RequestCache {
   }
 
   set<T>(key: string, data: T, ttlMs: number): void {
+    // Evict oldest entries if at capacity
+    if (this.store.size >= RequestCache.MAX_ENTRIES) {
+      const oldestKey = this.store.keys().next().value;
+      if (oldestKey) this.store.delete(oldestKey);
+    }
     this.store.set(key, { data, timestamp: Date.now(), ttl: ttlMs });
   }
 
@@ -135,9 +169,136 @@ function sanitizeResponse<T>(obj: T): T {
     if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
     const k = key.toLowerCase();
     if (FORBIDDEN_KEYS.has(k) || k.includes('reference-email')) continue;
-    clean[key] = sanitizeResponse((obj as Record<string, unknown>)[key]);
+    
+    let value = (obj as Record<string, unknown>)[key];
+    
+    // Normalize id field to string
+    if (key === 'id' && typeof value === 'number') {
+      value = value.toString();
+    }
+    
+    clean[key] = sanitizeResponse(value);
   }
   return clean as T;
+}
+
+// ============================================================================
+// Normalize Response - Convert snake_case to camelCase and ensure ID is string
+// ============================================================================
+function toCamelCase(str: string): string {
+  return str.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function normalizeResponse<T>(obj: T): T {
+  if (obj === null || obj === undefined || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) return obj.map(normalizeResponse) as unknown as T;
+
+  const normalized: Record<string, unknown> = {};
+  for (const key in obj) {
+    if (!Object.prototype.hasOwnProperty.call(obj, key)) continue;
+    
+    const value = (obj as Record<string, unknown>)[key];
+    const camelKey = toCamelCase(key);
+    
+    // Normalize IDs to always be strings (handle null/undefined but allow 0)
+    if (camelKey === 'id' || camelKey.endsWith('Id')) {
+      normalized[camelKey] = (value !== null && value !== undefined) ? String(value) : value;
+    } else {
+      normalized[camelKey] = normalizeResponse(value);
+    }
+  }
+  return normalized as T;
+}
+
+// ============================================================================
+// Normalize User Response (snake_case to camelCase)
+// ============================================================================
+function normalizeUser(user: any): User {
+  if (!user) return user;
+  
+  const normalized: any = { ...user };
+  
+  // Map snake_case fields to camelCase
+  const fieldMapping: Record<string, string> = {
+    'is_online': 'isOnline',
+    'trips_count': 'tripsCount',
+    'marital_status': 'maritalStatus',
+    'years_experience': 'yearsExperience',
+    'service_areas': 'serviceAreas',
+    // These fields intentionally keep their snake_case names for backend compatibility
+    'driver_profile_exists': 'driver_profile_exists',
+    'driver_verified': 'driver_verified',
+    'driver_approved': 'driver_approved',
+    'driver_status': 'driver_status',
+    'force_rider_mode': 'force_rider_mode',
+    'account_status': 'account_status',
+  };
+  
+  for (const [snakeKey, camelKey] of Object.entries(fieldMapping)) {
+    if (snakeKey in normalized) {
+      normalized[camelKey] = normalized[snakeKey];
+      // Only delete if we actually changed the key name
+      if (snakeKey !== camelKey) {
+        delete normalized[snakeKey];
+      }
+    }
+  }
+  
+  return normalized as User;
+}
+
+// ============================================================================
+// Normalize Trip Response (snake_case to camelCase and parse numeric fields)
+// ============================================================================
+function normalizeTrip(trip: any): Trip {
+  if (!trip) return trip;
+  
+  const normalized: any = { ...trip };
+  
+  // Parse numeric text fields to actual numbers
+  if (normalized.distance_km !== undefined && normalized.distance_km !== null) {
+    normalized.distance_km = typeof normalized.distance_km === 'string' 
+      ? parseFloat(normalized.distance_km) 
+      : normalized.distance_km;
+  }
+  
+  if (normalized.duration_mins !== undefined && normalized.duration_mins !== null) {
+    normalized.duration_mins = typeof normalized.duration_mins === 'string'
+      ? parseInt(normalized.duration_mins, 10)
+      : normalized.duration_mins;
+  }
+  
+  if (normalized.proposed_price !== undefined && normalized.proposed_price !== null) {
+    normalized.proposed_price = typeof normalized.proposed_price === 'string'
+      ? parseFloat(normalized.proposed_price)
+      : normalized.proposed_price;
+  }
+  
+  if (normalized.final_price !== undefined && normalized.final_price !== null) {
+    normalized.final_price = typeof normalized.final_price === 'string'
+      ? parseFloat(normalized.final_price)
+      : normalized.final_price;
+  }
+  
+  // Ensure bids array always exists
+  if (!normalized.bids) {
+    normalized.bids = [];
+  }
+  
+  // Parse offer_price in bids if present
+  if (Array.isArray(normalized.bids)) {
+    normalized.bids = normalized.bids.map((bid: any) => {
+      const normalizedBid = { ...bid };
+      if (normalizedBid.offer_price !== undefined && normalizedBid.offer_price !== null) {
+        normalizedBid.offer_price = typeof normalizedBid.offer_price === 'string'
+          ? parseFloat(normalizedBid.offer_price)
+          : normalizedBid.offer_price;
+      }
+      return normalizedBid;
+    });
+  }
+  
+  return normalized as Trip;
 }
 
 // ============================================================================
@@ -177,15 +338,22 @@ function getStatusMessage(status: number): string {
 class XanoApiClient {
   private cache = new RequestCache();
   private pendingRequests = new Map<string, Promise<unknown>>();
+  private healthStatus = new Map<string, { 
+    status: 'healthy' | 'degraded' | 'down'; 
+    lastChecked: number; 
+    responseTime?: number;
+  }>();
+  private activeTokens = new Set<string>(); // Track active tokens for session invalidation
 
-  private async request<T>(
+  async request<T>(
     endpoint: string,
     method: string = 'GET',
     body?: unknown,
     signal?: AbortSignal,
     options: { retries?: number; timeout?: number } = {}
   ): Promise<T> {
-    const maxRetries = options.retries ?? MAX_RETRIES;
+    const isAuthMutation = method === 'POST' && endpoint.startsWith('/auth/');
+    const maxRetries = isAuthMutation ? 0 : (options.retries ?? MAX_RETRIES);
     const timeout = options.timeout ?? REQUEST_TIMEOUT;
     const token = localStorage.getItem('ridein_auth_token');
     const url = `${PROXY_BASE}${endpoint}`;
@@ -217,8 +385,30 @@ class XanoApiClient {
           clearTimeout(timeoutId);
 
           if (response.status === 401) {
-            this.logout();
-            throw new ApiError('Session expired. Please log in again.', 401, 'AUTH_EXPIRED');
+            const isAuthEndpoint = endpoint.startsWith('/auth/');
+            const data = await response.json().catch(() => ({ message: 'Unauthorized' }));
+            
+            if (!isAuthEndpoint) {
+              logger.warn('[Auth] Session expired or invalid token detected');
+              this.logout();
+              throw new ApiError(
+                data?.message || 'Your session has expired. Please log in again.',
+                401,
+                'AUTH_EXPIRED'
+              );
+            }
+            
+            // Auth endpoints (login, signup) - invalid credentials
+            const errorMessage = data?.message || 'Invalid credentials. Please check your phone number and password.';
+            logger.warn('[Auth] Authentication failed:', errorMessage);
+            throw new ApiError(errorMessage, 401, 'INVALID_CREDENTIALS');
+          }
+
+          if (response.status === 403) {
+            const data = await response.json().catch(() => ({ message: 'Access denied' }));
+            const errorMessage = data?.message || 'You do not have permission to access this resource.';
+            logger.warn('[Auth] Access forbidden:', errorMessage);
+            throw new ApiError(errorMessage, 403, 'ACCESS_FORBIDDEN');
           }
 
           const data = await response.json().catch(() => ({ message: 'Invalid response from server' }));
@@ -230,7 +420,10 @@ class XanoApiClient {
             throw err;
           }
 
-          return sanitizeResponse(data) as T;
+          // Apply sanitization to remove forbidden keys, then normalize snake_case to camelCase
+          const sanitized = sanitizeResponse(data);
+          const normalized = normalizeResponse(sanitized);
+          return normalized as T;
         } catch (err: any) {
           clearTimeout(timeoutId);
           lastError = err;
@@ -242,7 +435,7 @@ class XanoApiClient {
 
           if (attempt < maxRetries && isRetryableError(err)) {
             const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
-            console.warn(`[API] Request failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms...`, err?.message || err);
+            logger.warn(`[API] Request failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms...`, err?.message || err);
             await sleep(delay);
             continue;
           }
@@ -295,15 +488,17 @@ class XanoApiClient {
     };
 
     const res = await this.request<AuthResponse>(`/auth/signup`, 'POST', payload);
-    this.saveSession(res.authToken, res.user);
-    return res.user;
+    const normalizedUser = normalizeUser(res.user);
+    this.saveSession(res.authToken, normalizedUser);
+    return normalizedUser;
   }
 
   async login(phone: string, pin: string): Promise<User> {
     const payload = { phone, password: pin };
     const res = await this.request<AuthResponse>(`/auth/login`, 'POST', payload);
-    this.saveSession(res.authToken, res.user);
-    return res.user;
+    const normalizedUser = normalizeUser(res.user);
+    this.saveSession(res.authToken, normalizedUser);
+    return normalizedUser;
   }
 
   async requestPasswordReset(phone: string): Promise<{ message: string }> {
@@ -312,30 +507,128 @@ class XanoApiClient {
 
   async completePasswordReset(phone: string, code: string, newPassword: string): Promise<User> {
     const res = await this.request<AuthResponse>(`/auth/complete-password-reset`, 'POST', { phone, code, password: newPassword });
-    this.saveSession(res.authToken, res.user);
-    return res.user;
+    const normalizedUser = normalizeUser(res.user);
+    this.saveSession(res.authToken, normalizedUser);
+    return normalizedUser;
   }
 
   async getMe(signal?: AbortSignal): Promise<User | null> {
     try {
+      // Check if token exists before making request
+      const token = localStorage.getItem('ridein_auth_token');
+      if (!token || token === 'undefined') {
+        logger.warn('[Auth] No valid token found, clearing session');
+        localStorage.removeItem('ridein_auth_token');
+        localStorage.removeItem('ridein_user_cache');
+        return null;
+      }
+
       const user = await this.cachedGet<User>(`/auth/me`, CACHE_TTL.user, signal);
       if (user) {
-        localStorage.setItem('ridein_user_cache', JSON.stringify(sanitizeResponse(user)));
+        const normalizedUser = normalizeUser(user);
+        // No need to sanitize again — already done in request()
+        localStorage.setItem('ridein_user_cache', JSON.stringify(normalizedUser));
+        logger.log('[Auth] Session validated successfully');
+        return normalizedUser;
       }
       return user;
-    } catch (e) {
+    } catch (e: any) {
+      logger.error('[Auth] Failed to validate session:', e?.message || e);
+      // Clear invalid session data on auth errors
+      if (e?.isAuthError || e?.statusCode === 401) {
+        localStorage.removeItem('ridein_auth_token');
+        localStorage.removeItem('ridein_user_cache');
+      }
       return null;
     }
   }
 
-  saveSession(token: string, user: User): void {
-    const cleanUser = sanitizeResponse(user);
+  saveSession(token: string, user: User, expirySeconds: number = TOKEN_EXPIRY_SECONDS): void {
+    if (!token || typeof token !== 'string' || token === 'undefined') {
+      logger.error('[Auth] Invalid token received, not saving session');
+      throw new Error('Invalid authentication token received');
+    }
+    if (!user || !user.id) {
+      logger.error('[Auth] Invalid user received, not saving session');
+      throw new Error('Invalid user data received');
+    }
+    // No need to sanitize again — already done in request()
+    const tokenExpiry = Date.now() + (expirySeconds * 1000);
+    
     localStorage.setItem('ridein_auth_token', token);
-    localStorage.setItem('ridein_user_cache', JSON.stringify(cleanUser));
+    localStorage.setItem('ridein_token_expiry', tokenExpiry.toString());
+    localStorage.setItem('ridein_user_cache', JSON.stringify(user));
+    
+    // Only one token should be active at a time - clear old tokens
+    this.activeTokens.clear();
+    this.activeTokens.add(token);
+  }
+
+  getTokenExpiry(): number | null {
+    const expiry = localStorage.getItem('ridein_token_expiry');
+    return expiry ? parseInt(expiry, 10) : null;
+  }
+
+  isTokenExpired(): boolean {
+    const expiry = this.getTokenExpiry();
+    if (!expiry) return true;
+    return Date.now() >= expiry;
+  }
+
+  isTokenExpiring(): boolean {
+    const expiry = this.getTokenExpiry();
+    if (!expiry) return false;
+    return (expiry - Date.now()) <= TOKEN_REFRESH_THRESHOLD && Date.now() < expiry;
+  }
+
+  async refreshToken(): Promise<boolean> {
+    try {
+      const currentToken = localStorage.getItem('ridein_auth_token');
+      if (!currentToken) return false;
+
+      // Call refresh endpoint
+      const res = await this.request<AuthResponse>('/auth/refresh', 'POST', {});
+      const normalizedUser = normalizeUser(res.user);
+      
+      // Use tokenExpiry (in seconds) from response if provided, otherwise default to 24 hours
+      const expirySeconds = res.tokenExpiry || TOKEN_EXPIRY_SECONDS;
+      this.saveSession(res.authToken, normalizedUser, expirySeconds);
+      
+      // Invalidate old token
+      this.activeTokens.delete(currentToken);
+      
+      return true;
+    } catch (err) {
+      logger.error('[Auth] Token refresh failed:', err);
+      return false;
+    }
+  }
+
+  async revokeToken(token?: string): Promise<void> {
+    const tokenToRevoke = token || localStorage.getItem('ridein_auth_token');
+    if (!tokenToRevoke) return;
+
+    try {
+      // Call revoke endpoint (will be created in backend)
+      await this.request('/auth/revoke', 'POST', { token: tokenToRevoke });
+      this.activeTokens.delete(tokenToRevoke);
+    } catch (err) {
+      logger.error('[Auth] Token revocation failed:', err);
+    }
   }
 
   logout(): void {
+    const token = localStorage.getItem('ridein_auth_token');
+    
+    // Revoke token on server
+    if (token) {
+      this.revokeToken(token).catch(err => 
+        logger.error('[Auth] Failed to revoke token on logout:', err)
+      );
+    }
+    
     localStorage.removeItem('ridein_auth_token');
+    localStorage.removeItem('ridein_token_expiry');
     localStorage.removeItem('ridein_user_cache');
     this.cache.invalidate();
     ablyService.disconnect();
@@ -344,13 +637,15 @@ class XanoApiClient {
 
   async switchRole(userId: string, role: UserRole): Promise<User> {
     const user = await this.request<User>(`/switch-role`, 'POST', {
-      user_id: parseInt(userId, 10),
-      role
+      new_role: role
     });
-    const clean = sanitizeResponse(user);
-    localStorage.setItem('ridein_user_cache', JSON.stringify(clean));
+    const normalizedUser = normalizeUser(user);
+    // No need to sanitize again — already done in request()
+    localStorage.setItem('ridein_user_cache', JSON.stringify(normalizedUser));
+    // Invalidate the /auth/me cache to prevent stale data
+    this.cache.invalidate('GET:/auth/me');
     this.cache.invalidate('user');
-    return clean;
+    return normalizedUser;
   }
 
   subscribeToActiveTrip(callback: (trip: Trip | null) => void): () => void {
@@ -358,9 +653,11 @@ class XanoApiClient {
     let interval: ReturnType<typeof setInterval> | null = null;
 
     const checkActive = async () => {
+      if (document.hidden) return; // Skip when tab is hidden
       try {
         const trip = await this.request<Trip>(`/trips/active`, 'GET', undefined, controller.signal);
-        callback(trip || null);
+        const normalized = trip ? normalizeTrip(trip) : null;
+        callback(normalized);
       } catch (e: any) {
         if (e instanceof ApiError && e.code === 'ABORTED') return;
         if (e?.message?.includes('Session expired') || e?.message?.includes('401')) {
@@ -371,18 +668,41 @@ class XanoApiClient {
       }
     };
 
-    checkActive();
-    interval = setInterval(checkActive, 12000);
+    const startPolling = () => {
+      if (!interval) {
+        checkActive();
+        interval = setInterval(checkActive, ACTIVE_TRIP_POLL_INTERVAL);
+      }
+    };
+
+    const stopPolling = () => {
+      if (interval) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopPolling();
+      } else {
+        startPolling();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    startPolling();
 
     return () => {
-      if (interval) clearInterval(interval);
+      stopPolling();
       controller.abort();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }
 
   async requestTrip(payload: CreateTripRequest, signal?: AbortSignal): Promise<Trip> {
     const xanoPayload = {
-      rider_id: parseInt(payload.riderId, 10),
+      rider_id: safeParseInt(payload.riderId, 'riderId'),
       vehicle_type: payload.type,
       category: payload.category,
       pickup: { lat: payload.pickup.lat, lng: payload.pickup.lng },
@@ -391,7 +711,7 @@ class XanoApiClient {
       dropoff_address: payload.dropoff.address,
       proposed_price: Number(payload.proposed_price),
       distance_km: Number(payload.distance_km),
-      duration_mins: typeof payload.duration === 'string' ? parseInt(payload.duration, 10) : payload.duration,
+      duration_mins: typeof payload.duration === 'string' ? safeParseInt(payload.duration, 'duration') : payload.duration,
       is_guest_booking: !!payload.isGuestBooking,
       guest_name: payload.guestName || '',
       guest_phone: payload.guestPhone || '',
@@ -402,7 +722,7 @@ class XanoApiClient {
     };
     const trip = await this.request<Trip>(`/trips`, 'POST', xanoPayload, signal);
     this.cache.invalidate('trips');
-    return trip;
+    return normalizeTrip(trip);
   }
 
   async cancelTrip(tripId: string): Promise<void> {
@@ -412,8 +732,8 @@ class XanoApiClient {
 
   async submitBid(tripId: string, offer_price: number, driver: User): Promise<void> {
     const res = await this.request<{ id: number }>(`/trips/${tripId}/offers`, 'POST', {
-      trip_id: parseInt(tripId, 10),
-      driver_id: parseInt(driver.id, 10),
+      trip_id: safeParseInt(tripId, 'tripId'),
+      driver_id: safeParseInt(driver.id, 'driver.id'),
       offer_price: Number(offer_price)
     });
 
@@ -429,9 +749,9 @@ class XanoApiClient {
   }
 
   async acceptBid(tripId: string, bidId: string): Promise<Trip> {
-    const trip = await this.request<Trip>(`/trips/${tripId}/accept`, 'POST', { bid_id: parseInt(bidId, 10) });
+    const trip = await this.request<Trip>(`/trips/${tripId}/accept`, 'POST', { bid_id: safeParseInt(bidId, 'bidId') });
     this.cache.invalidate('trips');
-    return trip;
+    return normalizeTrip(trip);
   }
 
   async updateTripStatus(tripId: string, status: TripStatus): Promise<void> {
@@ -441,7 +761,7 @@ class XanoApiClient {
 
   async submitReview(tripId: string, rating: number, tags: string[], comment: string, isFavorite: boolean): Promise<void> {
     await this.request(`/trips/${tripId}/review`, 'POST', {
-      trip_id: parseInt(tripId, 10),
+      trip_id: safeParseInt(tripId, 'tripId'),
       rating: Number(rating),
       tags,
       comment,
@@ -451,9 +771,135 @@ class XanoApiClient {
 
   async submitRating(tripId: string, rating: number): Promise<void> {
     await this.request(`/trips/${tripId}/rating`, 'POST', {
-      trip_id: parseInt(tripId, 10),
+      trip_id: safeParseInt(tripId, 'tripId'),
       rating: Number(rating)
     });
+  }
+
+  // Health Monitoring
+  // NOTE: For production at scale (200K+ users), create a dedicated /health endpoint
+  // in Xano that requires no authentication and does minimal work (just returns 200 OK)
+  // The current default of /auth/me requires authentication and does database lookups
+  async checkHealth(endpoint: string = '/auth/me'): Promise<{ status: 'healthy' | 'degraded' | 'down'; responseTime: number }> {
+    const startTime = Date.now();
+    try {
+      await this.request(endpoint, 'GET', undefined, undefined, { timeout: 5000, retries: 0 });
+      const responseTime = Date.now() - startTime;
+      const status = responseTime < 1000 ? 'healthy' : 'degraded';
+      
+      this.healthStatus.set(endpoint, { status, lastChecked: Date.now(), responseTime });
+      return { status, responseTime };
+    } catch (err) {
+      this.healthStatus.set(endpoint, { status: 'down', lastChecked: Date.now() });
+      return { status: 'down', responseTime: Date.now() - startTime };
+    }
+  }
+
+  getHealthStatus(endpoint: string): { status: 'healthy' | 'degraded' | 'down'; lastChecked: number; responseTime?: number } | null {
+    return this.healthStatus.get(endpoint) || null;
+  }
+
+  // Check if user has required role(s)
+  hasRole(user: User | null, roles: UserRole | UserRole[]): boolean {
+    if (!user) return false;
+    const roleArray = Array.isArray(roles) ? roles : [roles];
+    return roleArray.includes(user.role);
+  }
+
+  // Check if user has specific permission (for admin users)
+  hasPermission(user: User | null, permission: string): boolean {
+    if (!user || user.role !== 'admin') return false;
+    return user.permissions?.includes(permission) || false;
+  }
+
+  // ============================================================================
+  // Admin Methods (Item 15)
+  // ============================================================================
+  async getAdminUsers(page = 1, perPage = 30): Promise<{ users: User[]; total: number }> {
+    const response = await this.request<{ users: User[]; pagination: { total: number } }>(
+      `/admin/users?page=${page}&per_page=${perPage}`,
+      'GET'
+    );
+    return {
+      users: response.users.map(normalizeUser),
+      total: response.pagination.total
+    };
+  }
+
+  async updateUserAccountStatus(userId: string, status: string): Promise<void> {
+    await this.request(`/admin/users/${userId}/status`, 'POST', { status });
+  }
+
+  async getAdminStats(): Promise<{ totalUsers: number; totalTrips: number; activeDrivers: number }> {
+    return this.request<{ totalUsers: number; totalTrips: number; activeDrivers: number }>(
+      '/admin/stats',
+      'GET'
+    );
+  }
+
+  async approveDriver(userId: string): Promise<void> {
+    await this.request(`/admin/drivers/${userId}/approve`, 'POST');
+  }
+
+  async rejectDriver(userId: string, reason?: string): Promise<void> {
+    await this.request(`/admin/drivers/${userId}/reject`, 'POST', { reason });
+  }
+
+  // ============================================================================
+  // Trip History Methods (Item 19)
+  // ============================================================================
+  async getTripHistory(page = 1, perPage = 20): Promise<{ trips: Trip[]; total: number }> {
+    const response = await this.request<{ trips: Trip[]; pagination?: { total: number } }>(
+      `/trips/history?page=${page}&per_page=${perPage}`,
+      'GET'
+    );
+    return {
+      trips: response.trips.map(normalizeTrip),
+      total: response.pagination?.total || response.trips.length
+    };
+  }
+
+  // ============================================================================
+  // Favourites Methods (Item 21)
+  // ============================================================================
+  async getFavourites(): Promise<User[]> {
+    const response = await this.request<{ favourites: User[] }>('/favourites', 'GET');
+    return response.favourites.map(normalizeUser);
+  }
+
+  async addFavourite(driverId: string): Promise<void> {
+    await this.request('/favourites', 'POST', { driver_id: safeParseInt(driverId, 'driverId') });
+  }
+
+  async removeFavourite(favouriteId: string): Promise<void> {
+    await this.request(`/favourites/${favouriteId}`, 'DELETE');
+  }
+
+  // ============================================================================
+  // Profile Methods (Item 20)
+  // ============================================================================
+  async updateProfile(updates: Partial<User>): Promise<User> {
+    const payload: any = {};
+    
+    // Map camelCase to snake_case for backend
+    if (updates.name !== undefined) payload.name = updates.name;
+    if (updates.phone !== undefined) payload.phone = updates.phone;
+    if (updates.city !== undefined) payload.city = updates.city;
+    if (updates.avatar !== undefined) payload.avatar = updates.avatar;
+    if (updates.age !== undefined) payload.age = updates.age;
+    if (updates.gender !== undefined) payload.gender = updates.gender;
+    if (updates.maritalStatus !== undefined) payload.marital_status = updates.maritalStatus;
+    if (updates.religion !== undefined) payload.religion = updates.religion;
+    if (updates.personality !== undefined) payload.personality = updates.personality;
+    
+    const user = await this.request<User>('/auth/profile', 'PUT', payload);
+    const normalizedUser = normalizeUser(user);
+    
+    // Update cached user - no need to sanitize again as already done in request()
+    localStorage.setItem('ridein_user_cache', JSON.stringify(normalizedUser));
+    this.cache.invalidate('user');
+    
+    return normalizedUser;
   }
 }
 

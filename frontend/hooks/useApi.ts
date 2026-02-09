@@ -40,22 +40,34 @@ export function useAuth(): UseAuthReturn {
         }
 
         // Attempt to fetch current user
-        const currentUser = await xanoService.getMe().catch(() => null);
+        const currentUser = await xanoService.getMe().catch((err) => {
+          // Only use cached user for network errors, not auth errors
+          if (err instanceof Error && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+            return null;
+          }
+          // For auth errors or other issues, clear the token and don't use cache
+          localStorage.removeItem('ridein_auth_token');
+          throw err;
+        });
         
         if (!controller.signal.aborted) {
-          if (currentUser) {
+          if (currentUser?.id) {
+            // Valid user retrieved from API
             setUser(currentUser);
             ablyService.connect(currentUser.id);
           } else {
-            // Fallback to cached user if API fails
-            const cached = localStorage.getItem('ridein_user_cache');
-            if (cached) {
-              try {
-                const parsed = JSON.parse(cached);
-                setUser(parsed);
-                ablyService.connect(parsed.id);
-              } catch (e) {
-                console.error('[useAuth] Failed to parse cached user', e);
+            // Fallback to cached user only for network errors (when token exists)
+            const token = localStorage.getItem('ridein_auth_token');
+            if (token) {
+              const cached = localStorage.getItem('ridein_user_cache');
+              if (cached) {
+                try {
+                  const parsed = JSON.parse(cached);
+                  setUser(parsed);
+                  ablyService.connect(parsed.id);
+                } catch (e) {
+                  console.error('[useAuth] Failed to parse cached user', e);
+                }
               }
             }
           }
@@ -63,6 +75,10 @@ export function useAuth(): UseAuthReturn {
       } catch (err) {
         if (!controller.signal.aborted) {
           console.error('[useAuth] Initialization error', err);
+          // Clear invalid session data
+          localStorage.removeItem('ridein_auth_token');
+          localStorage.removeItem('ridein_user_cache');
+          setUser(null);
         }
       } finally {
         if (!controller.signal.aborted) {

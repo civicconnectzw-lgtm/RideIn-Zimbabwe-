@@ -15,6 +15,30 @@ query "driver/trips/available" verb=GET {
   }
 
   stack {
+    // Validate that the authenticated user is a driver
+    db.get users {
+      field_name = "id"
+      field_value = $auth.id
+    } as $user
+
+    // Log access attempt
+    util.log {
+      level = "info"
+      message = "Driver trips request from user ID: " & $auth.id & " (role: " & $user.role & ")"
+    }
+
+    // Ensure user is a driver
+    precondition ($user.role == "driver") {
+      error_type = "accessdenied"
+      error = "Access denied. Only drivers can access this resource."
+    }
+
+    // Ensure driver is approved
+    precondition ($user.driver_approved == true) {
+      error_type = "accessdenied"
+      error = "Access denied. Driver profile must be approved to access trips."
+    }
+
     // Fetch all trips currently in the bidding phase
     db.query trips {
       where = $db.trips.status == "BIDDING"

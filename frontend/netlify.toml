@@ -23,7 +23,7 @@
     # Updated for ride-sharing app needs
     Permissions-Policy = "geolocation=(self), microphone=(), camera=(), payment=(self), fullscreen=(self)"
     # Add CSP for better security
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://api.mapbox.com https://cdn.ably.io; style-src 'self' 'unsafe-inline' https://api.mapbox.com; img-src 'self' data: https://api.mapbox.com https://*.tiles.mapbox.com; connect-src 'self' https://api.mapbox.com https://realtime.ably.io wss://realtime.ably.io https://generativelanguage.googleapis.com; font-src 'self' data:;"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://api.mapbox.com https://cdn.ably.io; style-src 'self' 'unsafe-inline' https://api.mapbox.com https://cdnjs.cloudflare.com https://fonts.googleapis.com; img-src 'self' data: blob: https://api.mapbox.com https://*.tiles.mapbox.com; connect-src 'self' https://api.mapbox.com https://realtime.ably.io wss://realtime.ably.io https://generativelanguage.googleapis.com https://*.xano.io; font-src 'self' data: https://cdnjs.cloudflare.com https://fonts.gstatic.com; worker-src 'self' blob:;"
     # Enable HSTS
     Strict-Transport-Security = "max-age=31536000; includeSubDomains; preload"
 
@@ -33,14 +33,20 @@
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
-# JavaScript and CSS files
+# Index.html - no caching to ensure users always get latest version
 [[headers]]
-  for = "*.js"
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+# JavaScript and CSS files (only in /assets/ directory where Vite outputs hashed files)
+[[headers]]
+  for = "/assets/*.js"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
 [[headers]]
-  for = "*.css"
+  for = "/assets/*.css"
   [headers.values]
     Cache-Control = "public, max-age=31536000, immutable"
 
@@ -87,6 +93,13 @@
 [[headers]]
   for = "/api/*"
   [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+# Rate limiting for auth endpoints (requires backend implementation)
+[[headers]]
+  for = "/.netlify/functions/xano/auth/*"
+  [headers.values]
+    X-RateLimit-Policy = "auth"
     Cache-Control = "no-cache, no-store, must-revalidate"
 
 # SPA routing

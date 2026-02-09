@@ -24,6 +24,10 @@ query trips verb=POST {
     // Type of vehicle required
     text vehicle_type
   
+    // Category of service (e.g., Standard, Premium, Luxury for passenger; Bike, 1-2T, 3-5T, 7-10T for freight)
+    // These are example values; actual categories are defined by the frontend constants
+    text category?
+  
     // Price offered by the rider
     decimal proposed_price
   
@@ -44,6 +48,18 @@ query trips verb=POST {
   
     // Phone number of the guest
     text guest_phone?
+  
+    // Scheduled time for the trip (ISO 8601 format string, e.g., "2024-12-31T10:00:00Z")
+    text scheduled_time?
+  
+    // Description of the item (for freight)
+    text item_description?
+  
+    // Whether the trip requires assistance
+    bool requires_assistance?
+  
+    // Photos of cargo (for freight) - array of URLs to uploaded images
+    text[] cargo_photos?
   }
 
   stack {
@@ -64,6 +80,7 @@ query trips verb=POST {
         dropoff_lng     : $input.dropoff_lng
         dropoff_address : $input.dropoff_address
         vehicle_type    : $input.vehicle_type
+        category        : $input.category
         proposed_price  : $input.proposed_price
         distance_km     : $input.distance_km
         duration_mins   : $input.duration_mins
@@ -71,6 +88,10 @@ query trips verb=POST {
         is_guest_booking: $input.is_guest_booking
         guest_name      : $input.guest_name
         guest_phone     : $input.guest_phone
+        scheduled_time  : $input.scheduled_time
+        item_description: $input.item_description
+        requires_assistance: $input.requires_assistance
+        cargo_photos    : $input.cargo_photos
         created_at      : "now"
         updated_at      : "now"
       }

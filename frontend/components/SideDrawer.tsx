@@ -92,7 +92,7 @@ export const SideDrawer: React.FC<SideDrawerProps> = ({
       <div className="absolute inset-0 bg-slate-900/60" onClick={onClose}></div>
       <div className={`absolute top-0 left-0 bottom-0 w-[85%] max-w-xs bg-white shadow-2xl transition-transform duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] flex flex-col ${isOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         
-        <div className={`p-8 pt-12 text-white shrink-0 ${user.role === 'rider' ? 'bg-brand-blue' : 'bg-brand-orange'}`}>
+        <div className={`p-8 pt-12 text-white shrink-0 ${user.role === 'rider' ? 'bg-gradient-to-br from-brand-blue to-brand-blue-light' : 'bg-gradient-to-br from-brand-orange to-brand-orange-light'}`}>
            <div className="relative z-10">
               <div className="w-16 h-16 rounded-3xl bg-white/20 mb-4 p-1 border border-white/30 rotate-3">
                  <img src={user.avatar || `https://ui-avatars.com/api/?name=${user.name}&background=random`} alt={user.name} className="w-full h-full rounded-2xl object-cover bg-slate-800" />

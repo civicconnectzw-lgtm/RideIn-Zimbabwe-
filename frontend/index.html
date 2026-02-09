@@ -6,8 +6,28 @@
   <meta name="theme-color" content="#FFFFFF">
   <meta name="description" content="RideIn Zimbabwe - Premium Mobility">
   
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <link href="https://api.mapbox.com/mapbox-gl-js/v3.9.1/mapbox-gl.css" rel="stylesheet">
+  <!-- Content Security Policy -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://esm.sh https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://api.mapbox.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data: blob: https://*.mapbox.com https://*.xano.io; connect-src 'self' https://*.xano.io https://*.ably.io https://api.mapbox.com https://events.mapbox.com wss://*.ably.io; worker-src 'self' blob:;">
+  
+  <!-- Preconnects for third-party domains -->
+  <link rel="preconnect" href="https://api.mapbox.com" crossorigin>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossorigin>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="dns-prefetch" href="https://realtime.ably.io">
+  <link rel="dns-prefetch" href="https://generativelanguage.googleapis.com">
+  
+  <!-- Async non-critical CSS -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl0IMPQe+8bX2S0cN+4p6Xz33ypDp4ZbX3rXlBLM+3xXlRshdeWQ+SkTzEhF5GYxHcAHO50/BRcVQ==" crossorigin="anonymous" referrerpolicy="no-referrer" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" integrity="sha512-iecdLmaskl0IMPQe+8bX2S0cN+4p6Xz33ypDp4ZbX3rXlBLM+3xXlRshdeWQ+SkTzEhF5GYxHcAHO50/BRcVQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></noscript>
+  
+  <!-- Mapbox CSS lazy loaded for performance. Note: Mapbox GL CSS doesn't officially publish SRI hashes -->
+  <link rel="preload" href="https://api.mapbox.com/mapbox-gl-js/v3.9.1/mapbox-gl.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="https://api.mapbox.com/mapbox-gl-js/v3.9.1/mapbox-gl.css"></noscript>
+  
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet" crossorigin="anonymous" media="print" onload="this.media='all'">
+  <noscript><link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&display=swap" rel="stylesheet" crossorigin="anonymous"></noscript>
+  
   <link rel="stylesheet" href="./index.css">
 
   <style>
@@ -23,7 +43,7 @@
       transition: opacity 0.5s ease-out, visibility 0.5s;
     }
     .boot-logo {
-      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+      font-family: 'Roboto', "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
       font-size: 2.5rem;
       font-weight: 900;
       color: #000000;

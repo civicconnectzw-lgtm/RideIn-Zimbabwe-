@@ -22,7 +22,7 @@ export const Button = React.memo((props: ButtonProps) => {
   
   const variants = {
     primary: "bg-brand-blue text-white shadow-md active:shadow-none",
-    secondary: "bg-brand-orange text-white shadow-md active:shadow-none",
+    secondary: "bg-brand-orange text-brand-text-dark shadow-md active:shadow-none",
     dark: "bg-black text-white active:bg-zinc-900",
     outline: "bg-white border border-zinc-200 text-black hover:bg-zinc-50 active:bg-zinc-100",
     danger: "bg-red-50 text-red-600 active:bg-red-100",

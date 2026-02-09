@@ -72,14 +72,25 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
     };
   }, [trip.id]);
 
-  const handleRatingSubmit = async (rating: number) => {
+  const handleRatingSubmit = async (rating: number, tags: string[], comment: string, isFavorite: boolean) => {
     try {
-      await xanoService.submitRating(trip.id, rating);
-      toast.success('Rating submitted successfully!');
+      await xanoService.submitReview(trip.id, rating, tags, comment, isFavorite);
+      toast.success('Review submitted successfully!');
       onClose();
     } catch (err) {
-      console.error('Failed to submit rating:', err);
-      toast.error('Failed to submit rating. Please try again.');
+      console.error('Failed to submit review:', err);
+      toast.error('Failed to submit review. Please try again.');
+    }
+  };
+
+  const handleEndTrip = async () => {
+    try {
+      await xanoService.updateTripStatus(trip.id, TripStatus.COMPLETED);
+      toast.success('Trip completed!');
+      onClose();
+    } catch (err) {
+      console.error('Failed to end trip:', err);
+      toast.error('Failed to end trip. Please try again.');
     }
   };
 
@@ -87,8 +98,43 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
     return <RatingView trip={trip} role={role} onSubmit={handleRatingSubmit} />;
   }
 
+  const currentUserId = role === 'rider' ? trip.riderId : (trip.driverId || trip.riderId);
+  const partnerName = trip.partner || (role === 'rider' ? 'Your Driver' : 'Your Rider');
+
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-white">
+      {isChatOpen && (
+        <ChatView 
+          tripId={trip.id} 
+          currentUserId={currentUserId} 
+          partnerName={partnerName} 
+          onClose={() => { 
+            setIsChatOpen(false); 
+            setUnreadCount(0); 
+          }} 
+        />
+      )}
+
+      {isSafetyHubOpen && (
+        <div className="fixed inset-0 z-[100] bg-red-600/95 backdrop-blur-3xl p-8 flex flex-col animate-fade-in text-white">
+          <button onClick={() => setIsSafetyHubOpen(false)} className="self-end w-12 h-12 rounded-full bg-white/10 flex items-center justify-center haptic-press">
+            <i className="fa-solid fa-xmark"></i>
+          </button>
+          <div className="flex-1 flex flex-col items-center justify-center text-center">
+            <div className="w-24 h-24 bg-white rounded-[2.5rem] flex items-center justify-center mb-8 shadow-2xl text-red-600 animate-pulse">
+              <i className="fa-solid fa-shield-heart text-4xl"></i>
+            </div>
+            <h2 className="text-4xl font-black tracking-tighter mb-4 uppercase">Safety Hub</h2>
+            <p className="text-red-100/60 text-xs font-bold uppercase tracking-widest leading-relaxed mb-12">Emergency protocols active.</p>
+            <div className="grid grid-cols-1 gap-4 w-full max-w-xs">
+              <Button variant="white" className="!text-red-600 py-6 !rounded-[2rem]">Trigger SOS Alert</Button>
+              <Button variant="outline" className="!bg-white/10 !border-white/20 !text-white py-6 !rounded-[2rem]">Share Trip Status</Button>
+              <Button variant="outline" className="!bg-white/10 !border-white/20 !text-white py-6 !rounded-[2rem]">AI Safety Check-In</Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex-1 relative">
         <React.Suspense fallback={<div className="w-full h-full bg-gray-100" />}>
           <MapView trip={trip} driverLocation={driverLocation} routeGeometry={routeGeometry} />
@@ -118,7 +164,13 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
             <div className="text-[10px] font-black text-gray-300 uppercase tracking-widest mt-1">SLA Target</div>
           </div>
           <div className="flex gap-3">
-            <button className="w-14 h-14 rounded-full bg-blue-50 text-brand-blue flex items-center justify-center text-lg haptic-press shadow-sm">
+            <button 
+              onClick={() => {
+                toast.info('Calling your partner...');
+                // In a real implementation, use the partner's phone number
+              }}
+              className="w-14 h-14 rounded-full bg-blue-50 text-brand-blue flex items-center justify-center text-lg haptic-press shadow-sm"
+            >
               <i className="fa-solid fa-phone"></i>
             </button>
             <button
@@ -153,7 +205,7 @@ export const ActiveTripView: React.FC<ActiveTripViewProps> = ({ trip, role, onCl
         </div>
 
         <div className="mt-8 space-y-4">
-          <Button variant="dark" className="w-full py-5 rounded-2xl shadow-xl shadow-black/5" onClick={onClose}>
+          <Button variant="dark" className="w-full py-5 rounded-2xl shadow-xl shadow-black/5" onClick={handleEndTrip}>
             End Trip
           </Button>
         </div>

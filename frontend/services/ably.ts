@@ -21,9 +21,14 @@ class AblyService {
 
   connect(userId: string) {
     if (this.client) return;
+    
+    // Get the auth token from localStorage
+    const authToken = localStorage.getItem('ridein_auth_token');
+    
     this.client = new Ably.Realtime.Promise({
       authUrl: '/.netlify/functions/ably-token',
       authParams: { clientId: userId },
+      authHeaders: authToken ? { 'Authorization': `Bearer ${authToken}` } : {},
       autoConnect: true,
     });
 

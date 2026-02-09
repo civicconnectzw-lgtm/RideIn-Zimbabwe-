@@ -1,13 +1,15 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useRef } from 'react';
 import { User, HomeViewProps, LoginViewProps } from './types';
 import { xanoService } from './services/xano';
 import { ablyService } from './services/ably';
-import { SplashAnimation } from './components/SplashAnimation';
 import { PublicOnboardingView } from './components/PublicOnboardingView';
 import ToastContainer from './components/ToastContainer';
 import OfflineBanner from './components/OfflineBanner';
+import { SessionStatusIndicator } from './components/SessionStatusIndicator';
+import { ApiHealthIndicator } from './components/ApiHealthIndicator';
 import { ToastProvider, useToastContext } from './hooks/useToastContext';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
+import { useAuthContext } from './contexts/AuthContext';
 
 /**
  * Resilient Lazy Loader with fallback error component
@@ -22,7 +24,7 @@ const lazyLoad = <T extends React.ComponentType<any>>(
       .catch(error => {
         console.error(`[Boot] Resource Offline: ${componentName}`, error);
         const ErrorComponent: React.FC = () => (
-          <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-[#001D3D] text-white font-mono">
+          <div className="min-h-screen flex flex-col items-center justify-center p-8 text-center bg-brand-blue text-white font-mono">
             <div className="w-16 h-16 rounded-3xl bg-red-500/20 flex items-center justify-center mb-6 text-red-500">
               <i className="fa-solid fa-link-slash text-2xl"></i>
             </div>
@@ -30,7 +32,7 @@ const lazyLoad = <T extends React.ComponentType<any>>(
             <p className="text-[10px] text-white/30 mb-8 uppercase tracking-widest max-w-xs leading-relaxed">
               The component node {componentName} failed to synchronize with the core grid.
             </p>
-            <button onClick={() => window.location.reload()} className="px-10 py-4 bg-brand-orange text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] haptic-press shadow-xl shadow-brand-orange/20">
+            <button onClick={() => window.location.reload()} className="px-10 py-4 bg-brand-orange text-brand-text-dark rounded-2xl font-black uppercase tracking-[0.2em] text-[10px] haptic-press shadow-xl shadow-brand-orange/20">
               Restart Uplink
             </button>
           </div>
@@ -45,70 +47,44 @@ const LoginView = lazyLoad<React.FC<LoginViewProps>>(() => import('./components/
 const RiderHomeView = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/RiderHomeView'), 'RiderHomeView');
 const DriverHomeView = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/DriverHomeView'), 'DriverHomeView');
 const PendingApprovalView = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/PendingApprovalView'), 'PendingApprovalView');
+const AdminDashboard = lazyLoad<React.FC<HomeViewProps>>(() => import('./components/AdminDashboard'), 'AdminDashboard');
 
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(null);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [showSplash, setShowSplash] = useState(true);
   const [hasSeenIntro, setHasSeenIntro] = useState<boolean | null>(null);
   
   const { isOnline } = useNetworkStatus();
   const toast = useToastContext();
-
+  const toastRef = useRef(toast);
+  const authContext = useAuthContext();
+  
+  // Keep toastRef up to date
   useEffect(() => {
-    // Guaranteed Splash visibility for initial brand engagement
-    const splashTimer = setTimeout(() => setShowSplash(false), 2600);
-
-    const initAuth = async () => {
-      try {
-        const seen = localStorage.getItem('ridein_intro_seen');
-        setHasSeenIntro(seen === 'true');
-
-        const token = localStorage.getItem('ridein_auth_token');
-        if (!token) {
-          setAuthLoading(false);
-          return;
-        }
-        
-        // Attempt Core Uplink
-        const currentUser = await xanoService.getMe().catch(() => null);
-        if (currentUser) {
-          setUser(currentUser);
-          ablyService.connect(currentUser.id);
-        } else {
-          // Fallback to cached identity if link is weak
-          const cached = localStorage.getItem('ridein_user_cache');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            setUser(parsed);
-            ablyService.connect(parsed.id);
-          }
-        }
-      } catch (e) {
-        console.error("[Auth] Link sequence error during boot:", e);
-        toast.error('Failed to restore session. Please log in again.');
-      } finally {
-        setAuthLoading(false);
-      }
-    };
-
-    initAuth();
-    
-    return () => {
-      clearTimeout(splashTimer);
-    };
+    toastRef.current = toast;
   }, [toast]);
 
-  const handleLogin = (newUser: User) => {
-    setUser(newUser);
-    if (newUser.id) {
-      ablyService.connect(newUser.id);
+  // Initialize hasSeenIntro from localStorage
+  useEffect(() => {
+    const seen = localStorage.getItem('ridein_intro_seen');
+    setHasSeenIntro(seen === 'true');
+  }, []);
+
+  // Show session expiration notification
+  useEffect(() => {
+    if (authContext.authState === 'session_expired' && authContext.error) {
+      toastRef.current.error(authContext.error);
+    } else if (authContext.authState === 'session_expiring') {
+      toastRef.current.warning('Your session will expire soon. You will be logged out automatically.');
     }
+  }, [authContext.authState, authContext.error]);
+
+  const handleLogin = async () => {
+    // LoginView already called authContext.login/signup which saved the token.
+    // Now refresh the authContext to pick up the new session.
+    await authContext.refreshUser();
   };
 
   const handleLogout = () => {
-    xanoService.logout();
-    setUser(null);
+    authContext.logout();
   };
 
   const handleCompleteIntro = () => {
@@ -116,9 +92,19 @@ const App: React.FC = () => {
     setHasSeenIntro(true);
   };
 
-  // Condition 1: Splash or Initial Load
-  if (showSplash || authLoading || hasSeenIntro === null) {
-    return <SplashAnimation />;
+  // Loading component for suspense fallback
+  const LoadingFallback = () => (
+    <div className="fixed inset-0 bg-white flex items-center justify-center">
+      <div className="text-center">
+        <div className="w-16 h-16 border-4 border-brand-orange border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+        <p className="text-brand-blue font-semibold">Loading...</p>
+      </div>
+    </div>
+  );
+
+  // Condition 1: Initial Load
+  if (authContext.authState === 'initializing' || hasSeenIntro === null) {
+    return <LoadingFallback />;
   }
 
   // Condition 2: First-time tactical onboarding
@@ -127,41 +113,64 @@ const App: React.FC = () => {
   }
 
   // Condition 3: Unauthorized state
-  if (!user) {
+  if (!authContext.user || authContext.authState === 'unauthenticated') {
     return (
-      <Suspense fallback={<SplashAnimation />}>
+      <Suspense fallback={<LoadingFallback />}>
         <LoginView onLogin={handleLogin} />
       </Suspense>
     );
   }
 
+  const user = authContext.user;
+
   // Role-based routing logic
   const isDriver = user.role === 'driver';
+  const isAdmin = user.role === 'admin';
   const isApproved = user.driver_approved === true || user.driver_status === 'approved';
 
   return (
-    <Suspense fallback={<SplashAnimation />}>
-      {isDriver ? (
+    <Suspense fallback={<LoadingFallback />}>
+      {isAdmin ? (
+        <AdminDashboard 
+          user={user} 
+          onLogout={handleLogout} 
+          onUserUpdate={async (updatedUser) => {
+            await authContext.refreshUser();
+          }} 
+        />
+      ) : isDriver ? (
         isApproved ? (
           <DriverHomeView 
             user={user} 
             onLogout={handleLogout} 
-            onUserUpdate={setUser} 
+            onUserUpdate={async (updatedUser) => {
+              await authContext.refreshUser();
+            }} 
           />
         ) : (
           <PendingApprovalView 
             user={user} 
             onLogout={handleLogout} 
-            onUserUpdate={setUser} 
+            onUserUpdate={async (updatedUser) => {
+              await authContext.refreshUser();
+            }} 
           />
         )
       ) : (
         <RiderHomeView 
           user={user} 
           onLogout={handleLogout} 
-          onUserUpdate={setUser} 
+          onUserUpdate={async (updatedUser) => {
+            await authContext.refreshUser();
+          }} 
         />
       )}
+      
+      {/* Session Status Indicator */}
+      <SessionStatusIndicator />
+      
+      {/* API Health Indicator */}
+      <ApiHealthIndicator />
       
       {/* Global Connectivity Overlay - tactical feedback */}
       <OfflineBanner isOnline={isOnline} />

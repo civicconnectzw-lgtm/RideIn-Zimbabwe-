@@ -2,7 +2,7 @@
 // ENUMS
 // ============================================================================
 
-export type UserRole = 'rider' | 'driver';
+export type UserRole = 'rider' | 'driver' | 'admin';
 
 export enum TripStatus {
   PENDING = 'PENDING',
@@ -67,10 +67,16 @@ export interface UserBase {
   avatar: string;
   token?: string;
   account_status?: AccountStatus;
+  tokenExpiry?: number; // Unix timestamp when token expires
 }
 
 export interface RiderUser extends UserBase {
   role: 'rider';
+}
+
+export interface AdminUser extends UserBase {
+  role: 'admin';
+  permissions?: string[];
 }
 
 export interface DriverUser extends UserBase {
@@ -92,7 +98,7 @@ export interface DriverUser extends UserBase {
 }
 
 // Strict discriminated union for new code
-export type StrictUser = RiderUser | DriverUser;
+export type StrictUser = RiderUser | DriverUser | AdminUser;
 
 // Backward-compatible type: all fields accessible without narrowing
 export interface User extends UserBase {
@@ -107,12 +113,14 @@ export interface User extends UserBase {
   serviceAreas?: string[];
   subscription?: Subscription;
   token?: string;
+  tokenExpiry?: number;
   driver_profile_exists?: boolean;
   driver_verified?: boolean;
   driver_approved?: boolean;
   driver_status?: DriverStatus;
   force_rider_mode?: boolean;
   account_status?: AccountStatus;
+  permissions?: string[]; // Admin permissions
 }
 
 // ============================================================================
@@ -263,6 +271,43 @@ export interface CancelEventPayload {
 export type RideEventPayload = BidEventPayload | StatusUpdateEventPayload | CancelEventPayload;
 
 // ============================================================================
+// AUTHENTICATION STATE TYPES
+// ============================================================================
+
+export type AuthState = 
+  | 'initializing'
+  | 'authenticated'
+  | 'unauthenticated'
+  | 'session_expired'
+  | 'session_expiring'
+  | 'refreshing';
+
+export interface AuthContextValue {
+  user: User | null;
+  authState: AuthState;
+  loading: boolean;
+  error: string | null;
+  tokenExpiry: number | null;
+  login: (phone: string, pin: string) => Promise<User | null>;
+  signup: (userData: Partial<User>, pin: string) => Promise<User | null>;
+  logout: () => void;
+  refreshToken: () => Promise<boolean>;
+  requestPasswordReset: (phone: string) => Promise<{ message: string } | null>;
+  completePasswordReset: (phone: string, code: string, newPassword: string) => Promise<User | null>;
+  switchRole: (role: UserRole) => Promise<User | null>;
+  refreshUser: () => Promise<void>;
+  clearError: () => void;
+}
+
+export interface ApiHealthStatus {
+  endpoint: string;
+  status: 'healthy' | 'degraded' | 'down';
+  lastChecked: number;
+  responseTime?: number;
+  errorMessage?: string;
+}
+
+// ============================================================================
 // RUNTIME TYPE GUARDS
 // ============================================================================
 
@@ -270,10 +315,10 @@ export function isUser(obj: unknown): obj is User {
   if (typeof obj !== 'object' || obj === null) return false;
   const u = obj as any;
   return (
-    typeof u.id === 'string' &&
+    (typeof u.id === 'string' || typeof u.id === 'number') &&
     typeof u.name === 'string' &&
     typeof u.phone === 'string' &&
-    (u.role === 'rider' || u.role === 'driver') &&
+    (u.role === 'rider' || u.role === 'driver' || u.role === 'admin') &&
     typeof u.city === 'string' &&
     typeof u.rating === 'number' &&
     typeof u.tripsCount === 'number' &&
@@ -288,6 +333,10 @@ export function isDriverUser(user: User): user is DriverUser {
 
 export function isRiderUser(user: User): user is RiderUser {
   return user.role === 'rider';
+}
+
+export function isAdminUser(user: User): user is AdminUser {
+  return user.role === 'admin';
 }
 
 export function isTrip(obj: unknown): obj is Trip {

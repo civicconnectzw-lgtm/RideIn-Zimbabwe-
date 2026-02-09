@@ -31,6 +31,8 @@ Thumbs.db
 !.vscode/settings.json
 .idea/
 *.sublime-*
+.cursor/
+.claude/
 
 # Debug logs
 *.log
@@ -50,3 +52,6 @@ coverage/
 # Misc
 *.local
 *.tgz
+
+# Duplicate/old directories
+RideIn-Zimbabwe--68f16a32d0d6fac6026827ea363dd493f110baee/
